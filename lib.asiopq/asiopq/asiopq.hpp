@@ -43,49 +43,40 @@ boost::asio::ip::tcp::socket dupTcpSocketFromHandle(boost::asio::io_service& ioS
     };
 }
 
-class Connection
+template <typename WaitHandler>
+void asyncWaitReading(boost::asio::ip::tcp::socket& s, WaitHandler handler)
+{
+    s.async_read_some(boost::asio::null_buffers{}, std::bind(std::move(handler), std::placeholders::_1));
+}
+
+template <typename WaitHandler>
+void asyncWaitWriting(boost::asio::ip::tcp::socket& s, WaitHandler handler)
+{
+    s.async_write_some(boost::asio::null_buffers{}, std::bind(std::move(handler), std::placeholders::_1));
+}
+
+template <typename ConnectHandler>
+class ConnectOp
 {
 public:
-    Connection(const Connection&) = delete;
-    Connection& operator=(const Connection&) = delete;
+    ConnectOp(ConnectOp&&) = default;
+    ConnectOp& operator=(ConnectOp&&) = default;
 
-    explicit Connection(boost::asio::io_service& ioService)
-        : m_socket { ioService }
+    ConnectOp(const ConnectOp&) = default; // старый boost требует копирования от handler
+    ConnectOp& operator=(const ConnectOp&) = default;
+
+    ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ConnectHandler handler)
+        : m_conn{ conn }
+        , m_socket{ s }
+        , m_handler{ std::move(handler) }
     {
     }
 
-    ~Connection() noexcept
-    {
-        close();
-    }
-
-    /*Connection(Connection&& other) noexcept(std::is_nothrow_move_constructible_v<decltype(m_socket)>)
-        : m_socket{ std::move(other.m_socket) }
-        , m_conn{ other.m_conn }
-    {
-        other.m_conn = nullptr;
-    }
-
-    Connection& operator=(Connection&& other) noexcept(std::is_nothrow_move_assignable_v<decltype(m_socket)>)
-    {
-        m_socket = std::move(other.m_socket);
-        m_conn = other.m_conn;
-        other.m_conn = nullptr;
-    }*/
-
-    PGconn* get() const noexcept
-    {
-        return m_conn;
-    }
-
-    template <typename ConnectHandler>
-    void dispatchConnect(const boost::system::error_code& ec, ConnectHandler&& handler)
+    void operator()(const boost::system::error_code& ec)
     {
         if (ec)
         {
-            boost::asio::detail::binder1<std::remove_reference_t<ConnectHandler>, boost::system::error_code> h( handler, ec );
-            boost_asio_handler_invoke_helpers::invoke(h, h.handler_);
-            //handler(ec);
+            m_handler(ec);
             return;
         }
 
@@ -93,62 +84,52 @@ public:
         switch (pollResult)
         {
         case PGRES_POLLING_OK:
-        {
-            boost::asio::detail::binder1<std::remove_reference_t<ConnectHandler>, boost::system::error_code> h(handler, boost::system::error_code{});
-            boost_asio_handler_invoke_helpers::invoke(h, h.handler_);
-            // h(boost::system::error_code{});
-            break;
-        }
+            m_handler(boost::system::error_code{});
+            return;
         case PGRES_POLLING_FAILED:
-        {
-            boost::asio::detail::binder1<std::remove_reference_t<ConnectHandler>, boost::system::error_code> h(handler, make_error_code(PQError::CONNECT_POLL_FAILED));
-            boost_asio_handler_invoke_helpers::invoke(h, h.handler_);
-            // h(make_error_code(PQError::CONNECT_POLL_FAILED));
-            break;
-        }
+            m_handler(make_error_code(PQError::CONNECT_POLL_FAILED));
+            return;
         case PGRES_POLLING_READING:
-            m_socket.async_read_some(
-                  boost::asio::null_buffers{}
-                , [this, handler{ std::move(handler) }](const boost::system::error_code& ec, std::size_t) mutable {
-                    dispatchConnect(ec, std::move(handler)); 
-                    });
-            break;
+            asyncWaitReading(m_socket, std::move(*this));
+            return;
         case PGRES_POLLING_WRITING:
-            m_socket.async_write_some(
-                  boost::asio::null_buffers{}
-                , [this, handler{ std::move(handler) }](const boost::system::error_code& ec, std::size_t) mutable {
-                    dispatchConnect(ec, std::move(handler));
-                    });
-            break;
+            asyncWaitWriting(m_socket, std::move(*this));
+            return;
         default:
             break;
         }
     }
 
-    template <typename ConnectHandler>
-    void dispatchExec(const boost::system::error_code& ec, ConnectHandler&& handler)
+private:
+    PGconn* m_conn;
+    boost::asio::ip::tcp::socket& m_socket;
+    ConnectHandler m_handler;
+};
+
+template <typename ExecHandler>
+class ExecOp
+{
+public:
+    ExecOp(ExecOp&&) = default;
+    ExecOp& operator=(ExecOp&&) = default;
+
+    ExecOp(const ExecOp&) = default; // старый boost требует копирования от handler
+    ExecOp& operator=(const ExecOp&) = default;
+
+    ExecOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ExecHandler handler)
+        : m_conn{ conn }
+        , m_socket{ s }
+        , m_handler{ std::move(handler) }
+    {
+    }
+
+    void operator()(const boost::system::error_code& ec)
     {
         if (ec)
         {
-            handler(ec, nullptr);
+            m_handler(ec, nullptr);
             return;
         }
-
-        /*const int flushed = ::PQflush(m_conn);
-        if (1 == flushed)
-        {
-            m_socket.async_write_some(
-                  boost::asio::null_buffers{}
-                , [this, handler{ std::move(handler) }](const boost::system::error_code& ec, std::size_t) mutable {
-                    dispatchExec(ec, std::move(handler));
-                });
-
-            return;
-        }
-        else if (0 != flushed)
-        {
-
-        }*/
 
         if (!::PQconsumeInput(m_conn))
         {
@@ -158,17 +139,12 @@ public:
         {
             if (::PQisBusy(m_conn))
             {
-                m_socket.async_read_some(
-                      boost::asio::null_buffers{}
-                    , [this, handler{ std::move(handler) }](const boost::system::error_code& ec, std::size_t) mutable {
-                        dispatchExec(ec, std::move(handler));
-                    });
-
+                asyncWaitReading(m_socket, std::move(*this));
                 return;
             }
 
             ::PGresult* res = ::PQgetResult(m_conn);
-            handler(boost::system::error_code{}, res);
+            m_handler(boost::system::error_code{}, res);
 
             if (!res)
                 return;
@@ -177,8 +153,49 @@ public:
         }
     }
 
+private:
+    PGconn* m_conn;
+    boost::asio::ip::tcp::socket& m_socket;
+    ExecHandler m_handler;
+};
+
+class Connection
+{
+public:
+    Connection(const Connection&) = delete;
+    Connection& operator=(const Connection&) = delete;
+
+    explicit Connection(boost::asio::io_service& ioService)
+        : m_socket{ std::make_unique<boost::asio::ip::tcp::socket>(ioService) }
+    {
+    }
+
+    ~Connection() noexcept
+    {
+        close();
+    }
+
+    Connection(Connection&& other) noexcept
+        : m_socket{ std::move(other.m_socket) }
+        , m_conn{ other.m_conn }
+    {
+        other.m_conn = nullptr;
+    }
+
+    Connection& operator=(Connection&& other) noexcept
+    {
+        m_socket = std::move(other.m_socket);
+        m_conn = other.m_conn;
+        other.m_conn = nullptr;
+    }
+
+    PGconn* get() const noexcept
+    {
+        return m_conn;
+    }
+
     template <typename ConnectHandler>
-    void asyncConnect(const char* conninfo, ConnectHandler&& handler)
+    void asyncConnect(const char* conninfo, ConnectHandler handler)
     {
         close();
 
@@ -186,46 +203,35 @@ public:
         if (!m_conn)
             return;
 
-        /*if (!::PQsetnonblocking(m_conn, 1))
-        {
-        }*/
-        m_socket = dupTcpSocketFromHandle(m_socket.get_io_service(), ::PQsocket(m_conn));
-        m_socket.non_blocking(true);
+        *m_socket = dupTcpSocketFromHandle(m_socket->get_io_service(), ::PQsocket(m_conn));
+        m_socket->non_blocking(true);
 
         using trueH = boost::asio::handler_type<ConnectHandler, void(boost::system::error_code)>::type;
-        trueH h{ handler };
+        trueH h{ std::move(handler) };
         boost::asio::async_result<trueH> res{ h };
-        m_socket.get_io_service().post([this, h{ h }]() mutable {
-            dispatchConnect(boost::system::error_code{}, h);
-        });
 
+        ConnectOp<trueH> connOp{ m_conn, *m_socket, std::move(h) };
+        m_socket->get_io_service().post(std::bind(std::move(connOp), boost::system::error_code{}));
         res.get();
     }
 
     template <typename Command, typename ExecHandler>
-    void asyncExec(Command&& cmd, ExecHandler&& handler)
+    void asyncExec(Command&& cmd, ExecHandler handler)
     {
         if (!cmd())
         {
         }
 
-        //using trueH = boost::asio::handler_type<ExecHandler, void(boost::system::error_code)>::type;
-        //trueH h{ handler };
-        //boost::asio::async_result<trueH> res{ h };
-        m_socket.get_io_service().post([this, handler{ std::move(handler) }]() mutable {
-            dispatchExec(boost::system::error_code{}, std::move(handler));
-        });
-
-        //res.get();
-
+        ExecOp<ExecHandler> exOp{ m_conn, *m_socket, std::move(handler) };
+        m_socket->get_io_service().post(std::bind(std::move(exOp), boost::system::error_code{}));
     }
 
     void close() noexcept
     {
-        if (m_socket.is_open())
+        if (m_socket->is_open())
         {
             boost::system::error_code ec;
-            m_socket.close(ec);
+            m_socket->close(ec);
         }
 
         if (m_conn)
@@ -236,7 +242,7 @@ public:
     }
 
 private:
-    boost::asio::ip::tcp::socket m_socket;
+    std::unique_ptr<boost::asio::ip::tcp::socket> m_socket;
     PGconn* m_conn = nullptr;
 };
 
