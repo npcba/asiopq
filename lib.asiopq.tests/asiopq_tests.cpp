@@ -1,5 +1,8 @@
 #define BOOST_TEST_MODULE LibAsioPQ
 
+#define BOOST_COROUTINE_NO_DEPRECATION_WARNING
+#define BOOST_COROUTINES_NO_DEPRECATION_WARNING
+
 #include <functional>
 #include <thread>
 
@@ -7,7 +10,6 @@
 #include <asiopq/asiopq.hpp>
 
 #include <boost/asio.hpp>
-#include <boost/coroutine2/all.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/test/included/unit_test.hpp>
