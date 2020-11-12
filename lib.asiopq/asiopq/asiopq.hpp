@@ -31,7 +31,7 @@ boost::asio::ip::tcp::socket dupTcpSocketFromHandle(boost::asio::io_service& ioS
     const auto dupHandle = ::dup(handle);
 
     sockaddr_storage name;
-    int nameLen = sizeof(name);
+    socklen_t nameLen = sizeof(name);
     const auto err = ::getsockname(dupHandle, reinterpret_cast<sockaddr*>(&name), &nameLen);
     const auto family = name.ss_family;
 #endif
@@ -101,30 +101,30 @@ public:
     {
         if (ec)
         {
-            invokeHandler(ec);
+            this->invokeHandler(ec);
             return;
         }
 
-        const auto pollResult = ::PQconnectPoll(m_conn);
+        const auto pollResult = ::PQconnectPoll(this->m_conn);
         switch (pollResult)
         {
         case PGRES_POLLING_OK:
         {
-            const ::ConnStatusType status = ::PQstatus(m_conn);
+            const ::ConnStatusType status = ::PQstatus(this->m_conn);
             if (::CONNECTION_OK != status)
                 return;
 
-            invokeHandler(boost::system::error_code{});
+            this->invokeHandler(boost::system::error_code{});
             return;
         }
         case PGRES_POLLING_FAILED:
-            invokeHandler(make_error_code(PQError::CONNECT_POLL_FAILED));
+            this->invokeHandler(make_error_code(PQError::CONNECT_POLL_FAILED));
             return;
         case PGRES_POLLING_READING:
-            asyncWaitReading(m_socket, std::move(*this));
+            asyncWaitReading(this->m_socket, std::move(*this));
             return;
         case PGRES_POLLING_WRITING:
-            asyncWaitWriting(m_socket, std::move(*this));
+            asyncWaitWriting(this->m_socket, std::move(*this));
             return;
         default:
             break;
@@ -153,28 +153,28 @@ public:
     {
         if (ec)
         {
-            invokeHandler(ec);
+            this->invokeHandler(ec);
             return;
         }
 
-        if (!::PQconsumeInput(m_conn))
+        if (!::PQconsumeInput(this->m_conn))
         {
         }
 
         while (true)
         {
-            if (::PQisBusy(m_conn))
+            if (::PQisBusy(this->m_conn))
             {
-                asyncWaitReading(m_socket, std::move(*this));
+                asyncWaitReading(this->m_socket, std::move(*this));
                 return;
             }
 
-            ::PGresult* res = ::PQgetResult(m_conn);
+            ::PGresult* res = ::PQgetResult(this->m_conn);
             m_collector(res);
 
             if (!res) // все данные обработаны
             {
-                invokeHandler(boost::system::error_code{});
+                this->invokeHandler(boost::system::error_code{});
                 return;
             }
 
@@ -384,7 +384,7 @@ public:
 private:
     static std::string generateUniqueName()
     {
-        static std::atomic_uint uniqueN = 0;
+        static std::atomic_uint uniqueN;
         return std::to_string(++uniqueN);
     }
 
