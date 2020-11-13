@@ -54,18 +54,19 @@ private:
 
 void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
-    boost::asio::ip::tcp::endpoint ep{ boost::asio::ip::address::from_string("127.0.0.1"), 5162 };
-    boost::asio::ip::tcp::socket s{ ios };
-    boost::system::error_code ec;
+    //boost::asio::ip::tcp::endpoint ep{ boost::asio::ip::address::from_string("127.0.0.1"), 5162 };
+    //boost::asio::ip::tcp::socket s{ ios };
+    //boost::system::error_code ec;
     //s.async_connect(ep, [](boost::system::error_code ec) {
     //    auto a = 1; });
     //auto size = boost::asio::async_write(s, boost::asio::buffer("1"), boost::asio::transfer_exactly(1), yield);
 
     ba::asiopq::Connection conn{ ios };
-    conn.asyncConnect("postgresql://postgres:postgres@localhost/egts", yield);
-    ba::asiopq::PreparedQuery query{ conn, "insert into teledata (foo, bar) VALUES('prepandexec', 'prepandexec')" };
+    conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", yield);
+    ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield);
+    ba::asiopq::PreparedQuery query{ conn, "insert into asiopq (foo, bar) VALUES('teststringdata1', 'teststringdata2')" };
 
-    for (int i = 0; i < 25000; ++i)
+    for (int i = 0; i < 1000; ++i)
     {
         query(yield);
     }
@@ -85,7 +86,7 @@ BOOST_AUTO_TEST_CASE(test_connect)
         testers.back()->start();
     }*/
 
-    for (int i = 0; i < 40; ++i)
+    for (int i = 0; i < 10; ++i)
     {
         boost::asio::spawn( ioService, [&ioService](boost::asio::yield_context yield){
             test(ioService, yield);
@@ -93,7 +94,7 @@ BOOST_AUTO_TEST_CASE(test_connect)
     }
 
     std::vector<std::thread> thrs;
-    for (int i = 0; i < 1; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         thrs.emplace_back([&ioService] {
             ioService.run();
