@@ -353,18 +353,16 @@ template <std::size_t length>
 class TextParams
 {
 public:
-    TextParams() noexcept
+    template <typename... Char>
+    TextParams(const Char*... params...) noexcept
+        : m_params{ checkedChar(params)... }
     {
+        static_assert(sizeof...(params) == length, "Constructor argument count should be equal to 'length' template parameter");
     }
 
-    explicit TextParams(const char* p0) noexcept
-        : m_params{ p0 }
+    TextParams(const char* const(&params)[length]) noexcept
     {
-    }
-
-    TextParams(const char* p0, const char* p1) noexcept
-        : m_params{ p0, p1 }
-    {
+        std::copy(std::begin(params), std::end(params), m_params.begin());
     }
 
     constexpr int n() const noexcept
@@ -393,6 +391,14 @@ public:
     }
 
 private:
+    template <typename Char>
+    static constexpr const char* checkedChar(const Char* param) noexcept
+    {
+        static_assert(std::is_same_v<Char, char>, "Only const char* parameters are allowed");
+        return param;
+    }
+
+private:
     std::array<const char*, length> m_params;
 };
 
@@ -400,6 +406,12 @@ template <typename... Char>
 TextParams<sizeof...(Char)> makeTextParams(const Char*... params...)
 {
     return { params... };
+}
+
+template <std::size_t length>
+TextParams<length> makeTextParams(const char* const(&params)[length])
+{
+    return { params };
 }
 
 template <typename Handler, typename ResultCollector = IgnoreResult>
