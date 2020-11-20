@@ -396,7 +396,7 @@ private:
     template <typename Char>
     static constexpr const char* checkedChar(const Char* param) noexcept
     {
-        static_assert(std::is_same_v<Char, char>, "Only const char* parameters are allowed");
+        static_assert(std::is_same<Char, char>::value, "Only const char* parameters are allowed");
         return param;
     }
 
