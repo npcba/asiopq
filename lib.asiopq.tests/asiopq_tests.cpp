@@ -29,7 +29,7 @@ class Tester
 public:
     explicit Tester(boost::asio::io_service& ios)
         : m_conn{ ios }
-        , m_query{ m_conn, "insert into teledata (foo, bar) VALUES('prepandexec', 'prepandexec')" }
+        , m_query{ m_conn, "insert into teledata (foo, bar) VALUES($1, $2)" }
     {
     }
 
@@ -43,12 +43,12 @@ public:
         if (!(m_count--))
             return;
 
-        m_query(std::bind(&Tester::handle, this, std::placeholders::_1));
+        m_query(ba::asiopq::makeTextParams("teststringdata1", "teststringdata2"), std::bind(&Tester::handle, this, std::placeholders::_1));
     }
 
 private:
     ba::asiopq::Connection m_conn;
-    ba::asiopq::PreparedQuery m_query;
+    ba::asiopq::PreparedQuery<> m_query;
     std::size_t m_count = 25000;
 };
 
@@ -64,11 +64,11 @@ void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
     ba::asiopq::Connection conn{ ios };
     conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", yield);
     ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield);
-    ba::asiopq::PreparedQuery query{ conn, "insert into asiopq (foo, bar) VALUES('teststringdata1', 'teststringdata2')" };
+    ba::asiopq::PreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
 
     for (int i = 0; i < 1000; ++i)
     {
-        query(yield);
+        query(ba::asiopq::makeTextParams("teststringdata1", "teststringdata2"), yield);
     }
 }
 

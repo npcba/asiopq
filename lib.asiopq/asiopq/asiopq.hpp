@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
@@ -190,6 +191,13 @@ struct IgnoreResult
 {
     void operator()(::PGresult* res) const noexcept
     {
+        /*::ExecStatusType status = ::PQresultStatus(res);
+        PQprintOpt opt = { 0 };
+        opt.header = 1;
+        opt.align = 1;
+        //opt.expanded = 1;
+        opt.fieldSep = ", ";
+        ::PQprint(stdout, res, &opt);*/
     }
 };
 
@@ -240,23 +248,26 @@ public:
         if (!m_conn)
             return;
 
-        auto nativeSocket = ::PQsocket(m_conn);
-        if (-1 == nativeSocket)
+        return startConnectPoll(std::forward<ConnectHandler>(handler));
+    }
+
+    template <typename ConnectHandler>
+    void asyncConnectParams(const char* const* keywords, const char* const* values, int expandDbname, ConnectHandler&& handler)
+    {
+        if (::CONNECTION_BAD != ::PQstatus(m_conn))
+        {
+            return;
+        }
+
+        m_conn = ::PQconnectStartParams(keywords, values, expandDbname);
+        if (!m_conn)
             return;
 
-        *m_socket = dupTcpSocketFromHandle(m_socket->get_io_service(), nativeSocket);
-        m_socket->non_blocking(true);
-
-        boost::asio::detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
-            init{ std::forward<ConnectHandler>(handler) };
-
-        ConnectOp<decltype(init.handler)> connOp{ m_conn, *m_socket, std::move(init.handler) };
-        m_socket->get_io_service().post(std::bind(std::move(connOp), boost::system::error_code{}));
-        init.result.get();
+        return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
     template <typename SendCmd, typename ExecHandler, typename ResultCollector = IgnoreResult>
-    void asyncExec(SendCmd&& cmd, ExecHandler&& handler, ResultCollector&& coll = IgnoreResult{})
+    void asyncExec(SendCmd&& cmd, ExecHandler&& handler, ResultCollector&& coll = {})
     {
         if (!cmd())
         {
@@ -286,12 +297,113 @@ public:
     }
 
 private:
+    template <typename ConnectHandler>
+    void startConnectPoll(ConnectHandler&& handler)
+    {
+        auto nativeSocket = ::PQsocket(m_conn);
+        if (-1 == nativeSocket)
+            return;
+
+        *m_socket = dupTcpSocketFromHandle(m_socket->get_io_service(), nativeSocket);
+        m_socket->non_blocking(true);
+
+        boost::asio::detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
+            init{ std::forward<ConnectHandler>(handler) };
+
+        ConnectOp<decltype(init.handler)> connOp{ m_conn, *m_socket, std::move(init.handler) };
+        m_socket->get_io_service().post(std::bind(std::move(connOp), boost::system::error_code{}));
+        init.result.get();
+    }
+
+private:
     std::unique_ptr<boost::asio::ip::tcp::socket> m_socket;
     PGconn* m_conn = nullptr;
 };
 
+class NullParams
+{
+public:
+    constexpr int n() const noexcept
+    {
+        return 0;
+    }
+
+    constexpr const Oid* types() const noexcept
+    {
+        return nullptr;
+    }
+
+    constexpr const char* const* values() const noexcept
+    {
+        return nullptr;
+    }
+
+    constexpr const int* lengths() const noexcept
+    {
+        return nullptr;
+    }
+
+    constexpr const int* formats() const noexcept
+    {
+        return nullptr;
+    }
+};
+
+template <std::size_t length>
+class TextParams
+{
+public:
+    TextParams() noexcept
+    {
+    }
+
+    explicit TextParams(const char* p0) noexcept
+        : m_params{ p0 }
+    {
+    }
+
+    TextParams(const char* p0, const char* p1) noexcept
+        : m_params{ p0, p1 }
+    {
+    }
+
+    constexpr int n() const noexcept
+    {
+        return int(m_params.size());
+    }
+
+    constexpr const Oid* types() const noexcept
+    {
+        return nullptr;
+    }
+
+    const char* const* values() const noexcept
+    {
+        return m_params.data();
+    }
+
+    constexpr const int* lengths() const noexcept
+    {
+        return nullptr;
+    }
+
+    constexpr const int* formats() const noexcept
+    {
+        return nullptr;
+    }
+
+private:
+    std::array<const char*, length> m_params;
+};
+
+template <typename... Char>
+TextParams<sizeof...(Char)> makeTextParams(const Char*... params...)
+{
+    return { params... };
+}
+
 template <typename Handler, typename ResultCollector = IgnoreResult>
-boost::system::error_code asyncQuery(Connection& conn, const char* query, Handler&& handler, ResultCollector&& coll = IgnoreResult{})
+boost::system::error_code asyncQuery(Connection& conn, const char* query, Handler&& handler, ResultCollector&& coll = {})
 {
     conn.asyncExec(
         [pgConn{ conn.get() }, query] {
@@ -307,12 +419,29 @@ boost::system::error_code asyncQuery(Connection& conn, const char* query, Handle
     return {};
 }
 
-template <typename Handler, typename ResultCollector = IgnoreResult>
-boost::system::error_code asyncPrepare(Connection& conn, const char* name, const char* query, Handler&& handler, ResultCollector&& coll = IgnoreResult{})
+template <typename Params, typename Handler, typename ResultCollector = IgnoreResult>
+boost::system::error_code asyncQueryParams(Connection& conn, const char* command, const Params& params, bool textResultFormat, Handler&& handler, ResultCollector&& coll = {})
 {
     conn.asyncExec(
-        [pgConn{ conn.get() }, name, query]{
-            if (!::PQsendPrepare(pgConn, name, query, 0, nullptr))
+        [pgConn{ conn.get() }, command, &params, textResultFormat]{
+            if (!::PQsendQueryParams(pgConn, command, params.n(), params.types(), params.values(), params.lengths(), params.formats(), textResultFormat ? 0 : 1))
+            {
+            }
+            return boost::system::error_code{};
+        },
+        std::forward<Handler>(handler),
+        std::forward<ResultCollector>(coll)
+    );
+
+    return {};
+}
+
+template <typename Params, typename Handler, typename ResultCollector = IgnoreResult>
+boost::system::error_code asyncPrepareParams(Connection& conn, const char* name, const char* query, const Params& params, Handler&& handler, ResultCollector&& coll = {})
+{
+    conn.asyncExec(
+        [pgConn{ conn.get() }, name, query, &params]{
+            if (!::PQsendPrepare(pgConn, name, query, params.n(), params.types()))
             {
             }
             return boost::system::error_code{};
@@ -325,11 +454,17 @@ boost::system::error_code asyncPrepare(Connection& conn, const char* name, const
 }
 
 template <typename Handler, typename ResultCollector = IgnoreResult>
-boost::system::error_code asyncQueryPrepared(Connection& conn, const char* name, Handler&& handler, ResultCollector&& coll = IgnoreResult{})
+boost::system::error_code asyncPrepare(Connection& conn, const char* name, const char* query, Handler&& handler, ResultCollector&& coll = {})
+{
+    return asyncPrepareParams(conn, name, query, NullParams{}, std::forward<Handler>(handler), std::forward<ResultCollector>(coll));
+}
+
+template <typename Params, typename Handler, typename ResultCollector = IgnoreResult>
+boost::system::error_code asyncQueryPrepared(Connection& conn, const char* name, const Params& params, bool textResultFormat, Handler&& handler, ResultCollector&& coll = {})
 {
     conn.asyncExec(
-        [pgConn{ conn.get() }, name]{
-            if (!::PQsendQueryPrepared(pgConn, name, 0, nullptr, nullptr, nullptr, 0))
+        [pgConn{ conn.get() }, name, &params, textResultFormat]{
+            if (!::PQsendQueryPrepared(pgConn, name, params.n(), params.values(), params.lengths(), params.formats(), textResultFormat ? 0 : 1))
             {
             }
             return boost::system::error_code{};
@@ -341,25 +476,28 @@ boost::system::error_code asyncQueryPrepared(Connection& conn, const char* name,
     return {};
 }
 
+template <typename PrepareParams = NullParams>
 class PreparedQuery
 {
     PreparedQuery(const PreparedQuery&) = delete;
     PreparedQuery& operator=(const PreparedQuery&) = delete;
 
 public:
-    PreparedQuery(Connection& conn, std::string query)
+    PreparedQuery(Connection& conn, std::string query, bool textResultFormat = true, PrepareParams prepareParams = {})
         : m_conn{ conn }
         , m_query{ std::move(query) }
+        , m_prepareParams{ std::move(prepareParams) }
         , m_name{ generateUniqueName() }
+        , m_textResultFormat{ textResultFormat }
     {
     }
 
-    template <typename Handler>
-    void operator()(Handler&& handler)
+    template <typename Params, typename Handler>
+    void operator()(Params&& params, Handler&& handler)
     {
         if (m_prepared)
         {
-            asyncQueryPrepared(m_conn, m_name.c_str(), std::forward<Handler>(handler));
+            asyncQueryPrepared(m_conn, m_name.c_str(), std::forward<Params>(params), m_textResultFormat, std::forward<Handler>(handler));
             return;
         }
 
@@ -369,13 +507,13 @@ public:
             boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
         };
 
-        asyncPrepare(m_conn, m_name.c_str(), m_query.c_str(), [this, h{ std::move(hidden) }](const boost::system::error_code& ec) mutable {
+        asyncPrepareParams(m_conn, m_name.c_str(), m_query.c_str(), m_prepareParams, [this, params{ std::forward<Params>(params) }, h{ std::move(hidden) }](const boost::system::error_code& ec) mutable {
             if (ec)
             {
             }
 
             m_prepared = true;
-            asyncQueryPrepared(m_conn, m_name.c_str(), std::move(h));
+            asyncQueryPrepared(m_conn, m_name.c_str(), std::move(params), m_textResultFormat, std::move(h));
         });
 
         init.result.get();
@@ -391,7 +529,9 @@ private:
 private:
     Connection& m_conn;
     const std::string m_query;
+    const PrepareParams m_prepareParams;
     const std::string m_name;
+    const bool m_textResultFormat = true;
     bool m_prepared = false;
 };
 
