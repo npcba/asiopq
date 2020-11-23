@@ -7,19 +7,10 @@
 #include <thread>
 
 #include <boost/asio/spawn.hpp>
-#include <asiopq/asiopq.hpp>
-
-#include <boost/asio.hpp>
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <boost/test/included/unit_test.hpp>
-
-
-namespace ba { namespace asiopq{
-
-
-
-}} // namespaces
+#include <asiopq/layer2/async_query.hpp>
+#include <asiopq/layer3/auto_prepared_query.hpp>
+#include <asiopq/layer3/text_params.hpp>
 
 class Tester
 {
@@ -48,7 +39,7 @@ public:
 
 private:
     ba::asiopq::Connection m_conn;
-    ba::asiopq::PreparedQuery<> m_query;
+    ba::asiopq::AutoPreparedQuery<> m_query;
     std::size_t m_count = 25000;
 };
 
@@ -64,7 +55,7 @@ void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
     ba::asiopq::Connection conn{ ios };
     conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", yield);
     ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield);
-    ba::asiopq::PreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
+    ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
 
     for (int i = 0; i < 1000; ++i)
     {

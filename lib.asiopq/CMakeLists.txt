@@ -1,7 +1,6 @@
 add_library (
     ${PROJECT_NAME}
     asiopq.cpp
-    asiopq/asiopq.hpp
 )
 
 target_link_libraries(
