@@ -6,21 +6,23 @@
 
 #include <libpq-fe.h>
 
+#include "../layer2/params.hpp"
+
 namespace ba {
 namespace asiopq {
 
 template <std::size_t length>
-class TextParams
+class TextParamsView
 {
 public:
     template <typename... Char>
-    TextParams(const Char*... params...) noexcept
+    TextParamsView(const Char*... params...) noexcept
         : m_params{ checkedChar(params)... }
     {
         static_assert(sizeof...(params) == length, "Constructor argument count should be equal to 'length' template parameter");
     }
 
-    TextParams(const char* const(&params)[length]) noexcept
+    TextParamsView(const char* const(&params)[length]) noexcept
     {
         std::copy(std::begin(params), std::end(params), m_params.begin());
     }
@@ -62,14 +64,20 @@ private:
     std::array<const char*, length> m_params;
 };
 
+template <std::size_t length>
+struct ParamsTraits<TextParamsView<length>>
+{
+    using IsOwner = std::false_type;
+};
+
 template <typename... Char>
-TextParams<sizeof...(Char)> makeTextParams(const Char*... params...)
+TextParamsView<sizeof...(Char)> makeTextParamsView(const Char*... params...)
 {
     return { params... };
 }
 
 template <std::size_t length>
-TextParams<length> makeTextParams(const char* const(&params)[length])
+TextParamsView<length> makeTextParamsView(const char* const(&params)[length])
 {
     return { params };
 }

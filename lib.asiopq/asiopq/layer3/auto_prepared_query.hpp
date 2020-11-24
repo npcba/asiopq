@@ -7,9 +7,9 @@
 #include <boost/asio/detail/handler_invoke_helpers.hpp>
 #include <boost/asio/async_result.hpp>
 
-#include "../layer2/null_params.hpp"
 #include "../layer2/async_prepare_params.hpp"
 #include "../layer2/async_query_prepared.hpp"
+#include "cloned_params.hpp"
 
 
 namespace ba {
@@ -46,7 +46,7 @@ public:
             boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
         };
 
-        asyncPrepareParams(m_conn, m_name.c_str(), m_query.c_str(), m_prepareParams, [this, params{ std::forward<Params>(params) }, h{ std::move(hidden) }](const boost::system::error_code& ec) mutable {
+        asyncPrepareParams(m_conn, m_name.c_str(), m_query.c_str(), m_prepareParams, [this, params{ passOrClone(std::forward<Params>(params)) }, h{ std::move(hidden) }](const boost::system::error_code& ec) mutable {
             if (ec)
             {
             }
@@ -63,6 +63,18 @@ private:
     {
         static std::atomic_uint uniqueN;
         return std::to_string(++uniqueN);
+    }
+
+    template <typename Params, typename = std::enable_if_t<ParamsTraits<std::decay_t<Params>>::IsOwner::value>>
+    static Params&& passOrClone(Params&& params) // pass
+    {
+        return std::forward<Params>(params);
+    }
+
+    template <typename Params, typename = std::enable_if_t<!ParamsTraits<std::decay_t<Params>>::IsOwner::value>>
+    static ClonedParams passOrClone(Params&& params) // clone
+    {
+        return { std::forward<Params>(params) };
     }
 
 private:

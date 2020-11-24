@@ -1,9 +1,14 @@
 #pragma once
 
+#include <type_traits>
+
 #include <libpq-fe.h>
 
 namespace ba {
 namespace asiopq {
+
+template <typename Params>
+struct ParamsTraits;
 
 class NullParams
 {
@@ -32,6 +37,12 @@ public:
     {
         return nullptr;
     }
+};
+
+template <>
+struct ParamsTraits<NullParams>
+{
+    using IsOwner = std::true_type;
 };
 
 } // namespace ba

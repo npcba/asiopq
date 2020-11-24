@@ -34,7 +34,7 @@ public:
         if (!(m_count--))
             return;
 
-        m_query(ba::asiopq::makeTextParams("teststringdata1", "teststringdata2"), std::bind(&Tester::handle, this, std::placeholders::_1));
+        m_query(ba::asiopq::makeTextParamsView("teststringdata1", "teststringdata2"), std::bind(&Tester::handle, this, std::placeholders::_1));
     }
 
 private:
@@ -59,7 +59,7 @@ void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
 
     for (int i = 0; i < 1000; ++i)
     {
-        query(ba::asiopq::makeTextParams("teststringdata1", "teststringdata2"), yield);
+        query(ba::asiopq::makeTextParamsView("teststringdata1", "teststringdata2"), yield);
     }
 }
 
