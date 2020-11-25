@@ -117,13 +117,9 @@ public:
             return;
         }
 
-        if (!::PQconsumeInput(Base::m_conn))
-        {
-        }
-
         while (true)
         {
-            if (::PQisBusy(Base::m_conn))
+            if (::PQisBusy(Base::m_conn) && ::PQconsumeInput(Base::m_conn) && ::PQisBusy(Base::m_conn))
             {
                 detail::asyncWaitReading(Base::m_socket, std::move(*this));
                 return;
