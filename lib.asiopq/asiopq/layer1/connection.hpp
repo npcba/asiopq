@@ -28,17 +28,17 @@ public:
     }
 
     Connection(Connection&& other) noexcept
-        : m_socket{ std::move(other.m_socket) }
-        , m_conn{ other.m_conn }
+        : m_conn{ other.m_conn }
+        , m_socket{ std::move(other.m_socket) }
     {
         other.m_conn = nullptr;
     }
 
     Connection& operator=(Connection&& other) noexcept
     {
-        m_socket = std::move(other.m_socket);
         m_conn = other.m_conn;
         other.m_conn = nullptr;
+        m_socket = std::move(other.m_socket);
     }
 
     PGconn* get() noexcept
@@ -86,8 +86,7 @@ public:
         boost::asio::detail::async_result_init<ExecHandler, void(boost::system::error_code)>
             init{ std::forward<ExecHandler>(handler) };
 
-        detail::ExecOp<decltype(init.handler), ResultCollector> exOp{ m_conn, *m_socket, std::move(init.handler), std::forward<ResultCollector>(coll) };
-        m_socket->get_io_service().post(std::bind(std::move(exOp), boost::system::error_code{}));
+        m_socket->get_io_service().post(std::bind(detail::ExecOp<decltype(init.handler), ResultCollector>{ m_conn, *m_socket, std::move(init.handler), std::forward<ResultCollector>(coll) }, boost::system::error_code{}));
         init.result.get();
     }
 
@@ -120,14 +119,13 @@ private:
         boost::asio::detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
             init{ std::forward<ConnectHandler>(handler) };
 
-        detail::ConnectOp<decltype(init.handler)> connOp{ m_conn, *m_socket, std::move(init.handler) };
-        m_socket->get_io_service().post(std::bind(std::move(connOp), boost::system::error_code{}));
+        m_socket->get_io_service().post(std::bind(detail::ConnectOp<decltype(init.handler)>{ m_conn, *m_socket, std::move(init.handler) }, boost::system::error_code{}));
         init.result.get();
     }
 
 private:
-    std::unique_ptr<boost::asio::ip::tcp::socket> m_socket;
     PGconn* m_conn = nullptr;
+    std::unique_ptr<boost::asio::ip::tcp::socket> m_socket;
 };
 
 } // namespace asiopq

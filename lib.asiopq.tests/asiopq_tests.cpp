@@ -20,13 +20,13 @@ class Tester
 public:
     explicit Tester(boost::asio::io_service& ios)
         : m_conn{ ios }
-        , m_query{ m_conn, "insert into teledata (foo, bar) VALUES($1, $2)" }
+        , m_query{ m_conn, "insert into asiopq (foo, bar) VALUES($1, $2)" }
     {
     }
 
     void start()
     {
-        m_conn.asyncConnect("postgresql://postgres:postgres@localhost/egts", std::bind(&Tester::handle, this, std::placeholders::_1));
+        m_conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", std::bind(&Tester::handle, this, std::placeholders::_1));
     }
 
     void handle(const boost::system::error_code& ec)
@@ -54,12 +54,12 @@ void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
 
     ba::asiopq::Connection conn{ ios };
     conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", yield);
-    ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text, baz real)", yield);
-    ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq (foo, bar, baz) VALUES($1, $2, $3)" };
+    ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield);
+    ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
 
     for (int i = 0; i < 1000; ++i)
     {
-        query(ba::asiopq::makeTextParamsView("teststringdata1", "teststringdata2", "0.1"), yield);
+        query(ba::asiopq::makeTextParamsView("teststringdata1", "teststringdata2"), yield);
     }
 }
 
