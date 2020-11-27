@@ -12,7 +12,7 @@
 namespace ba {
 namespace asiopq {
 
-using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
+//using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
 
 class Connection
 {
@@ -59,7 +59,7 @@ public:
     {
         // If you get an error on the following line it means that your handler does
         // not meet the documented type requirements for a ConnectHandler.
-        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+        //BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
@@ -75,7 +75,7 @@ public:
     {
         // If you get an error on the following line it means that your handler does
         // not meet the documented type requirements for a ConnectHandler.
-        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+        //BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
@@ -91,7 +91,7 @@ public:
     {
         // If you get an error on the following line it means that your handler does
         // not meet the documented type requirements for a ExecHandler.
-        BOOST_ASIO_ACCEPT_HANDLER_CHECK(ExecHandler, handler) type_check;
+        //BOOST_ASIO_ACCEPT_HANDLER_CHECK(ExecHandler, handler) type_check;
 
         boost::asio::detail::async_result_init<ExecHandler, void(boost::system::error_code)>
             init{ std::forward<ExecHandler>(handler) };

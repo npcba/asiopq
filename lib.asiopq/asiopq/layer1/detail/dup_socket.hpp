@@ -51,7 +51,7 @@ dupTcpSocketFromHandle(
         return boost::system::error_code{
               errno
             , boost::asio::error::get_system_category()
-            );
+            };
 
     sockaddr_storage name;
     socklen_t nameLen = sizeof(name);
@@ -60,7 +60,7 @@ dupTcpSocketFromHandle(
         return boost::system::error_code{
               errno
             , boost::asio::error::get_system_category()
-            );
+            };
 
     const auto family = name.ss_family;
 #endif
