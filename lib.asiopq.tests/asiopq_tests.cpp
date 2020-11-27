@@ -54,7 +54,8 @@ void test(boost::asio::io_service& ios, boost::asio::yield_context yield)
 
     ba::asiopq::Connection conn{ ios };
     conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", yield);
-    ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield);
+    boost::system::error_code ec;
+    ba::asiopq::asyncQuery(conn, "CREATE TABLE asiopq(foo text, bar text)", yield[ec]);
     ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
 
     for (int i = 0; i < 1000; ++i)
