@@ -8,7 +8,22 @@
 #include "detail/operations.hpp"
 #include "ignore_result.hpp"
 
-//using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
+namespace boost {
+namespace asio {
+
+template <typename Handler>
+void ba_asiopq_handlerCheck(Handler&& handler)
+{
+    // If you get an error on the following line it means that your handler does
+    // not meet the documented type requirements for a Handler:
+    // void handler(
+    //     const boost::system::error_code & ec // Result of operation
+    // );
+    BOOST_ASIO_CONNECT_HANDLER_CHECK(Handler, handler) type_check;
+}
+
+} // namespace asio
+} // namespace boost
 
 namespace ba {
 namespace asiopq {
@@ -57,8 +72,11 @@ public:
     auto asyncConnect(const char* conninfo, ConnectHandler&& handler)
     {
         // If you get an error on the following line it means that your handler does
-        // not meet the documented type requirements for a ConnectHandler.
-        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+        // not meet the documented type requirements for a ConnectHandler:
+        // void handler(
+        //     const boost::system::error_code & ec // Result of operation
+        // );
+        boost::asio::ba_asiopq_handlerCheck(handler);
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
@@ -73,8 +91,11 @@ public:
     void asyncConnectParams(const char* const* keywords, const char* const* values, int expandDbname, ConnectHandler&& handler)
     {
         // If you get an error on the following line it means that your handler does
-        // not meet the documented type requirements for a ConnectHandler.
-        //BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+        // not meet the documented type requirements for a ConnectHandler:
+        // void handler(
+        //     const boost::system::error_code & ec // Result of operation
+        // );
+        boost::asio::ba_asiopq_handlerCheck(handler);
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
@@ -89,8 +110,11 @@ public:
     auto asyncExec(SendCmd&& cmd, ExecHandler&& handler, ResultCollector&& coll = {})
     {
         // If you get an error on the following line it means that your handler does
-        // not meet the documented type requirements for a ExecHandler.
-        //BOOST_ASIO_ACCEPT_HANDLER_CHECK(ExecHandler, handler) type_check;
+        // not meet the documented type requirements for a ConnectHandler:
+        // void handler(
+        //     const boost::system::error_code & ec // Result of operation
+        // );
+        boost::asio::ba_asiopq_handlerCheck(handler);
 
         boost::asio::detail::async_result_init<ExecHandler, void(boost::system::error_code)>
             init{ std::forward<ExecHandler>(handler) };
