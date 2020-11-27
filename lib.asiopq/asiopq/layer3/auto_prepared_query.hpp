@@ -32,13 +32,10 @@ public:
     }
 
     template <typename Params, typename Handler>
-    void operator()(Params&& params, Handler&& handler)
+    auto operator()(Params&& params, Handler&& handler)
     {
         if (m_prepared)
-        {
-            asyncQueryPrepared(m_conn, m_name.c_str(), std::forward<Params>(params), m_textResultFormat, std::forward<Handler>(handler));
-            return;
-        }
+            return asyncQueryPrepared(m_conn, m_name.c_str(), std::forward<Params>(params), m_textResultFormat, std::forward<Handler>(handler));
 
         boost::asio::detail::async_result_init<Handler, void(boost::system::error_code)> init{ std::forward<Handler>(handler) };
         auto hidden = [h{ std::move(init.handler) }](const boost::system::error_code& ec) mutable {
@@ -55,7 +52,7 @@ public:
             asyncQueryPrepared(m_conn, m_name.c_str(), std::move(params), m_textResultFormat, std::move(h));
         });
 
-        init.result.get();
+        return init.result.get();
     }
 
 private:

@@ -8,8 +8,11 @@
 #include "detail/operations.hpp"
 #include "ignore_result.hpp"
 
+
 namespace ba {
 namespace asiopq {
+
+using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
 
 class Connection
 {
@@ -46,48 +49,62 @@ public:
         return m_conn;
     }
 
-    template <typename ConnectHandler>
-    void asyncConnect(const char* conninfo, ConnectHandler&& handler)
+    const PGconn* get() const noexcept
     {
-        if (::CONNECTION_BAD != ::PQstatus(m_conn))
+        return m_conn;
+    }
+
+    template <typename ConnectHandler>
+    auto asyncConnect(const char* conninfo, ConnectHandler&& handler)
+    {
+        // If you get an error on the following line it means that your handler does
+        // not meet the documented type requirements for a ConnectHandler.
+        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+
+        /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
-            return;
-        }
+            return;??
+        }*/
 
         m_conn = ::PQconnectStart(conninfo);
-        if (!m_conn)
-            return;
-
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
     template <typename ConnectHandler>
     void asyncConnectParams(const char* const* keywords, const char* const* values, int expandDbname, ConnectHandler&& handler)
     {
-        if (::CONNECTION_BAD != ::PQstatus(m_conn))
+        // If you get an error on the following line it means that your handler does
+        // not meet the documented type requirements for a ConnectHandler.
+        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+
+        /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
-            return;
-        }
+            return;??
+        }*/
 
         m_conn = ::PQconnectStartParams(keywords, values, expandDbname);
-        if (!m_conn)
-            return;
-
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
     template <typename SendCmd, typename ExecHandler, typename ResultCollector = IgnoreResult>
-    void asyncExec(SendCmd&& cmd, ExecHandler&& handler, ResultCollector&& coll = {})
+    auto asyncExec(SendCmd&& cmd, ExecHandler&& handler, ResultCollector&& coll = {})
     {
-        if (!cmd())
-        {
-        }
+        // If you get an error on the following line it means that your handler does
+        // not meet the documented type requirements for a ExecHandler.
+        BOOST_ASIO_ACCEPT_HANDLER_CHECK(ExecHandler, handler) type_check;
 
         boost::asio::detail::async_result_init<ExecHandler, void(boost::system::error_code)>
             init{ std::forward<ExecHandler>(handler) };
 
-        m_socket->get_io_service().post(std::bind(detail::ExecOp<decltype(init.handler), ResultCollector>{ m_conn, *m_socket, std::move(init.handler), std::forward<ResultCollector>(coll) }, boost::system::error_code{}));
-        init.result.get();
+        boost::system::error_code ec = cmd();
+
+        using ExecOpType = detail::ExecOp<decltype(init.handler), ResultCollector>;
+        m_socket->get_io_service().post(
+            [handler{ ExecOpType{ m_conn, *m_socket, std::move(init.handler), std::forward<ResultCollector>(coll) } }, ec{ ec }]() mutable {
+            handler(ec);
+        });
+
+        return init.result.get();
     }
 
     void close() noexcept
@@ -107,20 +124,30 @@ public:
 
 private:
     template <typename ConnectHandler>
-    void startConnectPoll(ConnectHandler&& handler)
+    auto startConnectPoll(ConnectHandler&& handler)
     {
-        auto nativeSocket = ::PQsocket(m_conn);
-        if (-1 == nativeSocket)
-            return;
-
-        *m_socket = detail::dupTcpSocketFromHandle(m_socket->get_io_service(), nativeSocket);
-        m_socket->non_blocking(true);
-
         boost::asio::detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
             init{ std::forward<ConnectHandler>(handler) };
 
-        m_socket->get_io_service().post(std::bind(detail::ConnectOp<decltype(init.handler)>{ m_conn, *m_socket, std::move(init.handler) }, boost::system::error_code{}));
-        init.result.get();
+        boost::system::error_code ec;
+        int nativeSocket = -1;
+
+        if (m_conn)
+            if (-1 != (nativeSocket = ::PQsocket(m_conn)))
+                if (!(ec = detail::dupTcpSocketFromHandle(nativeSocket, *m_socket)))
+                    ec = m_socket->non_blocking(true, ec);
+            else
+                ec = make_error_code(PQError::CONN_INVALID_SOCKET);
+        else
+            ec = make_error_code(PQError::CONN_ALLOC_FAILED);
+
+        using ConnOpType = detail::ConnectOp<decltype(init.handler)>;
+        m_socket->get_io_service().post(
+            [handler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }, ec] () mutable {
+            handler(ec);
+        });
+
+        return init.result.get();
     }
 
 private:

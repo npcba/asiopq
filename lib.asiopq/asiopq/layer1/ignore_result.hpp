@@ -2,20 +2,26 @@
 
 #include <libpq-fe.h>
 
+#include <boost/system/error_code.hpp>
+
+
 namespace ba {
 namespace asiopq {
 
 struct IgnoreResult
 {
-    void operator()(::PGresult* res) const noexcept
+    boost::system::error_code operator()(const ::PGresult* res) const noexcept
     {
-        /*::ExecStatusType status = ::PQresultStatus(res);
-        PQprintOpt opt = { 0 };
-        opt.header = 1;
-        opt.align = 1;
-        //opt.expanded = 1;
-        opt.fieldSep = ", ";
-        ::PQprint(stdout, res, &opt);*/
+        if (!res) // конец данных
+            return {};
+
+        const auto status = ::PQresultStatus(res);
+        if (PGRES_FATAL_ERROR == status)
+            return make_error_code(PQError::RESULT_FATAL_ERROR);
+        if (PGRES_BAD_RESPONSE == status)
+            return make_error_code(PQError::RESULT_BAD_RESPONSE);
+
+        return {};
     }
 };
 

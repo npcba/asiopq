@@ -10,7 +10,16 @@ namespace asiopq {
 enum class PQError : int
 {
     OK = 0,
-    CONNECT_POLL_FAILED
+    CONN_ALLOC_FAILED,
+    CONN_INVALID_SOCKET,
+    CONN_POLL_FAILED,
+    CONSUME_INPUT_FAILED,
+    SEND_QUERY_FAILED,
+    SEND_QUERY_PARAMS_FAILED,
+    SEND_QUERY_PREPARED_FAILED,
+    SEND_PREPARE_FAILED,
+    RESULT_FATAL_ERROR,
+    RESULT_BAD_RESPONSE
 };
 
 class PQErrorCategory
@@ -25,7 +34,7 @@ class PQErrorCategory
     {
         switch (ev)
         {
-        case int(PQError::CONNECT_POLL_FAILED):
+        case int(PQError::CONN_POLL_FAILED):
             return "PostgreSQL PQconnectPoll failed";
         default:
             return "Unknown PostgreSQL error";

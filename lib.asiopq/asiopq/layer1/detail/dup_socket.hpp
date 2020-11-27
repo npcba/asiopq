@@ -14,12 +14,20 @@ namespace ba {
 namespace asiopq {
 namespace detail {
 
-inline boost::asio::ip::tcp::socket dupTcpSocketFromHandle(boost::asio::io_service& ioService, boost::asio::ip::tcp::socket::native_handle_type handle)
+inline boost::system::error_code
+dupTcpSocketFromHandle(
+      boost::asio::ip::tcp::socket::native_handle_type handle
+    , boost::asio::ip::tcp::socket& sock
+    )
 {
-
 #ifdef _WIN32
     ::WSAPROTOCOL_INFOW protoInfo;
-    ::WSADuplicateSocketW(handle, ::GetCurrentProcessId(), &protoInfo);
+    if (0 != ::WSADuplicateSocketW(handle, ::GetCurrentProcessId(), &protoInfo))
+        return boost::system::error_code{
+            ::WSAGetLastError()
+            , boost::asio::error::get_system_category()
+            };
+
     const auto dupHandle = ::WSASocketW(
           protoInfo.iAddressFamily
         , protoInfo.iSocketType
@@ -29,22 +37,42 @@ inline boost::asio::ip::tcp::socket dupTcpSocketFromHandle(boost::asio::io_servi
         , WSA_FLAG_OVERLAPPED
         );
 
+    if (INVALID_SOCKET == dupHandle)
+        return boost::system::error_code{
+            ::WSAGetLastError()
+            , boost::asio::error::get_system_category()
+        };
+
     const auto family = protoInfo.iAddressFamily;
 
 #else // POSIX
     const auto dupHandle = ::dup(handle);
+    if (dupHandle < 0)
+        return boost::system::error_code{
+              errno
+            , boost::asio::error::get_system_category()
+            );
 
     sockaddr_storage name;
     socklen_t nameLen = sizeof(name);
     const auto err = ::getsockname(dupHandle, reinterpret_cast<sockaddr*>(&name), &nameLen);
+    if (0 != err)
+        return boost::system::error_code{
+              errno
+            , boost::asio::error::get_system_category()
+            );
+
     const auto family = name.ss_family;
 #endif
 
-    return boost::asio::ip::tcp::socket{
-          ioService
-        , AF_INET6 == family ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4()
+    boost::system::error_code ec;
+    sock.assign(
+          AF_INET6 == family ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4()
         , dupHandle
-    };
+        , ec
+        );
+
+    return ec;
 }
 
 } // namespace detail

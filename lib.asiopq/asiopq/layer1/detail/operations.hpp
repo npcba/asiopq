@@ -37,74 +37,64 @@ protected:
     CompletionHandler m_handler;
 };
 
-template <typename CompletionHandler>
+template <typename ConnectHandler>
 class ConnectOp
-    : private OperationBase<CompletionHandler>
+    : private OperationBase<ConnectHandler>
 {
-    using Base = OperationBase<CompletionHandler>;
+    using Base = OperationBase<ConnectHandler>;
 
 public:
     ConnectOp(ConnectOp&&) = default;
     ConnectOp& operator=(ConnectOp&&) = default;
 
-    ConnectOp(const ConnectOp&) = default; // старый boost требует копирования от handler
+    // старый boost требует копирования от handler, для нового нужно запретить копирование, оствить только move для гарантии, что нет копирования
+    ConnectOp(const ConnectOp&) = default;
     ConnectOp& operator=(const ConnectOp&) = default;
 
-    ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, CompletionHandler&& handler)
-        : OperationBase<CompletionHandler>{conn, s, std::forward<CompletionHandler>(handler)}
+    ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ConnectHandler&& handler)
+        : Base{ conn, s, std::forward<ConnectHandler>(handler) }
     {
     }
 
     void operator()(const boost::system::error_code& ec)
     {
         if (ec)
-        {
-            Base::invokeHandler(ec);
-            return;
-        }
+            return Base::invokeHandler(ec);
 
         const auto pollResult = ::PQconnectPoll(Base::m_conn);
         switch (pollResult)
         {
         case PGRES_POLLING_OK:
         {
-            const ::ConnStatusType status = ::PQstatus(Base::m_conn);
-            if (::CONNECTION_OK != status)
-                return;
-
-            Base::invokeHandler(boost::system::error_code{});
-            return;
+            assert(::PQstatus(Base::m_conn) == ::CONNECTION_OK);
+            return Base::invokeHandler(boost::system::error_code{});
         }
-        case PGRES_POLLING_FAILED:
-            Base::invokeHandler(make_error_code(PQError::CONNECT_POLL_FAILED));
-            return;
         case PGRES_POLLING_READING:
-            detail::asyncWaitReading(Base::m_socket, std::move(*this));
-            return;
+            return detail::asyncWaitReading(Base::m_socket, std::move(*this));
         case PGRES_POLLING_WRITING:
-            detail::asyncWaitWriting(Base::m_socket, std::move(*this));
-            return;
+            return detail::asyncWaitWriting(Base::m_socket, std::move(*this));
         default:
-            break;
+            return Base::invokeHandler(make_error_code(PQError::CONN_POLL_FAILED));
         }
     }
 };
 
-template <typename CompletionHandler, typename ResultCollector>
+template <typename ExecHandler, typename ResultCollector>
 class ExecOp
-    : private OperationBase<CompletionHandler>
+    : private OperationBase<ExecHandler>
 {
-    using Base = OperationBase<CompletionHandler>;
+    using Base = OperationBase<ExecHandler>;
 
 public:
     ExecOp(ExecOp&&) = default;
     ExecOp& operator=(ExecOp&&) = default;
 
-    ExecOp(const ExecOp&) = default; // старый boost требует копирования от handler
+    // старый boost требует копирования от handler, для нового нужно запретить копирование, оствить только move для гарантии, что нет копирования
+    ExecOp(const ExecOp&) = default;
     ExecOp& operator=(const ExecOp&) = default;
 
-    ExecOp(PGconn* conn, boost::asio::ip::tcp::socket& s, CompletionHandler&& handler, ResultCollector&& coll)
-        : OperationBase<CompletionHandler>{ conn, s, std::forward<CompletionHandler>(handler) }
+    ExecOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ExecHandler&& handler, ResultCollector&& coll)
+        : Base{ conn, s, std::forward<ExecHandler>(handler) }
         , m_collector{ std::forward<ResultCollector>(coll) }
     {
     }
@@ -112,34 +102,39 @@ public:
     void operator()(const boost::system::error_code& ec)
     {
         if (ec)
+            return Base::invokeHandler(ec);
+
+        switch (const bool JUMP_OVER_FIRST_CHECK = {})
         {
-            Base::invokeHandler(ec);
-            return;
-        }
-
-        while (true)
-        {
-            if (::PQisBusy(Base::m_conn) && ::PQconsumeInput(Base::m_conn) && ::PQisBusy(Base::m_conn))
+        default:
+            for (;;)
             {
-                detail::asyncWaitReading(Base::m_socket, std::move(*this));
-                return;
+                if (::PQisBusy(Base::m_conn)) // если команда еще в процессе
+                {
+        case JUMP_OVER_FIRST_CHECK:
+                    if (!::PQconsumeInput(Base::m_conn)) // пробуем забрть из сокета все, что накопилось без блокирования
+                        return Base::invokeHandler(make_error_code(PQError::CONSUME_INPUT_FAILED));
+
+                    if (::PQisBusy(Base::m_conn)) // опять проверяем, может получили необходимые данные
+                        return detail::asyncWaitReading(Base::m_socket, std::move(*this)); // не получили, уходим в ожидание сокета на чтение
+                }
+
+                ::PGresult* res = ::PQgetResult(Base::m_conn);
+                const auto curEc = m_collector(res);
+                if (curEc)
+                    m_lastEc = curEc; // если ошибка, то сохраняем ее (перезаписываем предыдущую)
+
+                if (!res) // nullptr означает конец обработки данных (согласно документации PQgetResult)
+                    return Base::invokeHandler(m_lastEc);
+
+                ::PQclear(res);
             }
-
-            ::PGresult* res = ::PQgetResult(Base::m_conn);
-            m_collector(res);
-
-            if (!res) // все данные обработаны
-            {
-                Base::invokeHandler(boost::system::error_code{});
-                return;
-            }
-
-            ::PQclear(res);
         }
     }
 
 private:
     ResultCollector m_collector;
+    boost::system::error_code m_lastEc; // последняя ошибка, которую вернул m_collector
 };
 
 } // namespace detail
