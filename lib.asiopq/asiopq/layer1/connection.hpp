@@ -8,7 +8,7 @@
 #include "detail/operations.hpp"
 #include "ignore_result.hpp"
 
-using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
+//using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
 
 namespace ba {
 namespace asiopq {
