@@ -8,11 +8,10 @@
 #include "detail/operations.hpp"
 #include "ignore_result.hpp"
 
+using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
 
 namespace ba {
 namespace asiopq {
-
-//using boost::asio::handler_type; // fix for wrong BOOST_ASIO_HANDLER_TYPE impl
 
 class Connection
 {
@@ -59,7 +58,7 @@ public:
     {
         // If you get an error on the following line it means that your handler does
         // not meet the documented type requirements for a ConnectHandler.
-        //BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
+        BOOST_ASIO_CONNECT_HANDLER_CHECK(ConnectHandler, handler) type_check;
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
