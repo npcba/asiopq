@@ -146,19 +146,20 @@ public:
         return init.result.get();
     }
 
-    void close() noexcept
+    boost::system::error_code close() noexcept
     {
+        boost::system::error_code ec;
+
         if (m_socket->is_open())
-        {
-            boost::system::error_code ec;
             m_socket->close(ec);
-        }
 
         if (m_conn)
         {
             ::PQfinish(m_conn);
             m_conn = nullptr;
         }
+
+        return ec;
     }
 
 private:
