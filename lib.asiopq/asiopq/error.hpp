@@ -25,6 +25,7 @@ enum class PQError : int
 class PQErrorCategory
     : public boost::system::error_category
 {
+public:
     const char* name() const noexcept override
     {
         return "PostgreSQL error category";
@@ -34,8 +35,28 @@ class PQErrorCategory
     {
         switch (ev)
         {
+        case int(PQError::OK):
+            return "OK";
+        case int(PQError::CONN_ALLOC_FAILED):
+            return "PostgreSQL connection allocation failed";
+        case int(PQError::CONN_INVALID_SOCKET):
+            return "PostgreSQL invalid socket handle";
         case int(PQError::CONN_POLL_FAILED):
             return "PostgreSQL PQconnectPoll failed";
+        case int(PQError::CONSUME_INPUT_FAILED):
+            return "PostgreSQL PQconsumeInput failed";
+        case int(PQError::SEND_QUERY_FAILED):
+            return "PostgreSQL PQsendQuery failed";
+        case int(PQError::SEND_QUERY_PARAMS_FAILED):
+            return "PostgreSQL PQsendQueryParams failed";
+        case int(PQError::SEND_QUERY_PREPARED_FAILED):
+            return "PostgreSQL PQsendQueryPrepared failed";
+        case int(PQError::SEND_PREPARE_FAILED):
+            return "PostgreSQL PQsendPrepare failed";
+        case int(PQError::RESULT_FATAL_ERROR):
+            return "PostgreSQL PQresultStatus: PGRES_FATAL_ERROR";
+        case int(PQError::RESULT_BAD_RESPONSE):
+            return "PostgreSQL PQresultStatus: PGRES_BAD_RESPONSE";
         default:
             return "Unknown PostgreSQL error";
         }

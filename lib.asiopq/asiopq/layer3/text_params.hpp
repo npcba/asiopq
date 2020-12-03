@@ -15,6 +15,7 @@ template <std::size_t length>
 class TextParamsView
 {
 public:
+    // from variadic argumnts
     template <typename... Char>
     TextParamsView(const Char*... params...) noexcept
         : m_params{ checkedChar(params)... }
@@ -22,6 +23,7 @@ public:
         static_assert(sizeof...(params) == length, "Constructor argument count should be equal to 'length' template parameter");
     }
 
+    // from static array
     TextParamsView(const char* const(&params)[length]) noexcept
     {
         std::copy(std::begin(params), std::end(params), m_params.begin());
@@ -70,12 +72,14 @@ struct ParamsTraits<TextParamsView<length>>
     using IsOwner = std::false_type;
 };
 
+// from variadic argumnts
 template <typename... Char>
 TextParamsView<sizeof...(Char)> makeTextParamsView(const Char*... params...)
 {
     return { params... };
 }
 
+// from static array
 template <std::size_t length>
 TextParamsView<length> makeTextParamsView(const char* const(&params)[length])
 {

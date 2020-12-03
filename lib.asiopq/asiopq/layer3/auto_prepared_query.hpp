@@ -15,6 +15,8 @@
 namespace ba {
 namespace asiopq {
 
+// функтор, который автоматически выполняет asyncPrepareParams один раз перед первым вызовом asyncQueryPrepared,
+// сам генерит уникальное имя команды и хранит его в своем инстансе
 template <typename PrepareParams = NullParams>
 class AutoPreparedQuery
 {
@@ -31,25 +33,56 @@ public:
     {
     }
 
-    template <typename Params, typename Handler, typename ResultCollector = IgnoreResult>
-    auto operator()(Params&& params, Handler&& handler, ResultCollector&& coll = {})
+    template <typename Params, typename CompletionToken, typename ResultCollector = IgnoreResult>
+    auto operator()(Params&& params, CompletionToken&& completion, ResultCollector&& coll = {})
     {
         if (m_prepared)
-            return asyncQueryPrepared(m_conn, m_name.c_str(), std::forward<Params>(params), m_textResultFormat, std::forward<Handler>(handler), std::forward<ResultCollector>(coll));
+            return asyncQueryPrepared(
+                  m_conn
+                , m_name.c_str()
+                , std::forward<Params>(params)
+                , m_textResultFormat
+                , std::forward<CompletionToken>(completion)
+                , std::forward<ResultCollector>(coll)
+                );
 
-        boost::asio::detail::async_result_init<Handler, void(boost::system::error_code)> init{ std::forward<Handler>(handler) };
-        auto hidden = [h{ std::move(init.handler) }](const boost::system::error_code& ec) mutable {
-            boost::asio::detail::binder1<decltype(h), boost::system::error_code> binder{ std::move(h), ec };
+        boost::asio::detail::async_result_init<CompletionToken, void(boost::system::error_code)>
+            init{ std::forward<CompletionToken>(completion) };
+
+        // нужно скрыть реальный тип init.handler,
+        // чтобы хук boost::asio::async_result не распознал его и не вызвал лишний раз .get,
+        // потому что init.result.get() будет вызван в текущей функции
+        auto hiddenHandler = [handler{ std::move(init.handler) }](const boost::system::error_code& ec) mutable {
+            boost::asio::detail::binder1<decltype(handler), boost::system::error_code>
+                binder{ std::move(handler), ec };
             boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
         };
 
-        asyncPrepareParams(m_conn, m_name.c_str(), m_query.c_str(), m_prepareParams, [this, params{ passOrClone(std::forward<Params>(params)) }, h{ std::move(hidden) }, coll{ std::forward<ResultCollector>(coll) }](const boost::system::error_code& ec) mutable {
-            if (ec)
-                return h(ec);
+        asyncPrepareParams(
+              m_conn
+            , m_name.c_str()
+            , m_query.c_str()
+            , m_prepareParams
+            , [
+                  this
+                , params{ passOrClone(std::forward<Params>(params)) }
+                , hiddenHandler{ std::move(hiddenHandler) }
+                , coll{ std::forward<ResultCollector>(coll) }
+              ](const boost::system::error_code& ec) mutable {
+                if (ec)
+                    return hiddenHandler(ec);
 
-            m_prepared = true;
-            asyncQueryPrepared(m_conn, m_name.c_str(), std::move(params), m_textResultFormat, std::move(h), std::move(coll));
-        });
+                m_prepared = true;
+                asyncQueryPrepared(
+                      m_conn
+                    , m_name.c_str()
+                    , std::move(params)
+                    , m_textResultFormat
+                    , std::move(hiddenHandler)
+                    , std::move(coll)
+                    );
+              }
+            );
 
         return init.result.get();
     }

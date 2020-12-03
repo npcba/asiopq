@@ -47,7 +47,8 @@ public:
     ConnectOp(ConnectOp&&) = default;
     ConnectOp& operator=(ConnectOp&&) = default;
 
-    // старый boost требует копирования от handler, для нового нужно запретить копирование, оствить только move для гарантии, что нет копирования
+    // старый boost требует копирования от handler,
+    // для нового нужно будет запретить копирование, оствить только move для гарантии, что нет копирования
     ConnectOp(const ConnectOp&) = default;
     ConnectOp& operator=(const ConnectOp&) = default;
 
@@ -89,7 +90,8 @@ public:
     ExecOp(ExecOp&&) = default;
     ExecOp& operator=(ExecOp&&) = default;
 
-    // старый boost требует копирования от handler, для нового нужно запретить копирование, оствить только move для гарантии, что нет копирования
+    // старый boost требует копирования от handler,
+    // для нового нужно будет запретить копирование, оствить только move для гарантии, что нет копирования
     ExecOp(const ExecOp&) = default;
     ExecOp& operator=(const ExecOp&) = default;
 

@@ -80,7 +80,7 @@ public:
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
-            return;??
+            return;?? оказывается libpq сама проверяет
         }*/
 
         m_conn = ::PQconnectStart(conninfo);
@@ -88,7 +88,8 @@ public:
     }
 
     template <typename ConnectHandler>
-    void asyncConnectParams(const char* const* keywords, const char* const* values, int expandDbname, ConnectHandler&& handler)
+    auto asyncConnectParams(const char* const* keywords, const char* const* values,
+                            int expandDbname, ConnectHandler&& handler)
     {
         // If you get an error on the following line it means that your handler does
         // not meet the documented type requirements for a ConnectHandler:
@@ -99,7 +100,7 @@ public:
 
         /*if (::CONNECTION_BAD != ::PQstatus(m_conn))
         {
-            return;??
+            return;?? оказывается libpq сама проверяет
         }*/
 
         m_conn = ::PQconnectStartParams(keywords, values, expandDbname);
@@ -122,10 +123,25 @@ public:
         boost::system::error_code ec = cmd();
 
         using ExecOpType = detail::ExecOp<decltype(init.handler), ResultCollector>;
-        m_socket->get_io_service().post(
-            [handler{ ExecOpType{ m_conn, *m_socket, std::move(init.handler), std::forward<ResultCollector>(coll) } }, ec{ ec }]() mutable {
-            handler(ec);
-        });
+        if (ec)
+            m_socket->get_io_service().post(
+                  [boundHandler{
+                      ExecOpType{ m_conn, *m_socket, std::move(init.handler)
+                    , std::forward<ResultCollector>(coll) }
+                    }
+                , ec{ ec }] () mutable {
+                    boundHandler(ec);
+                    }
+                );
+        else
+            m_socket->get_io_service().post(
+                [boundHandler{
+                      ExecOpType{ m_conn, *m_socket, std::move(init.handler)
+                    , std::forward<ResultCollector>(coll) }
+                    }] () mutable {
+                    boundHandler(boost::system::error_code{});
+                    }
+                );
 
         return init.result.get();
     }
@@ -165,10 +181,17 @@ private:
             ec = make_error_code(PQError::CONN_ALLOC_FAILED);
 
         using ConnOpType = detail::ConnectOp<decltype(init.handler)>;
-        m_socket->get_io_service().post(
-            [handler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }, ec] () mutable {
-            handler(ec);
-        });
+
+        if (ec)
+            m_socket->get_io_service().post(
+                [boundHandler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }, ec] () mutable {
+                boundHandler(ec);
+            });
+        else
+            m_socket->get_io_service().post(
+                [boundHandler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }]() mutable {
+                boundHandler(boost::system::error_code{});
+            });
 
         return init.result.get();
     }
