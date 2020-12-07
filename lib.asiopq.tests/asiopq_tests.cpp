@@ -11,6 +11,8 @@
 #include <asiopq/async_query.hpp>
 #include <asiopq/auto_prepared_query.hpp>
 #include <asiopq/text_params.hpp>
+#include <asiopq/connection_pool.hpp>
+#include <asiopq/dump_result.hpp>
 
 const char* const CONNECTION_STRING = "postgresql://ctest:ctest@localhost/ctest";
 
@@ -59,7 +61,7 @@ BOOST_AUTO_TEST_CASE(createTableTest)
 {
     boost::asio::io_service ios;
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
-    createTableCoro(ios, yield);
+        createTableCoro(ios, yield);
         });
 
     ios.run();
@@ -100,7 +102,7 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     ios.run();
     BOOST_CHECK_NO_THROW(deleted.get());
 
-    ios.reset();
+    /*ios.reset();
     std::future<void> dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_NO_THROW(dropped.get());
@@ -109,5 +111,24 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     ios.reset();
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
-    BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
+    BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);*/
+}
+
+BOOST_AUTO_TEST_CASE(connectionPool)
+{
+    boost::asio::io_service ios;
+    ba::asiopq::ConnectionPool pool{ ios, 10 };
+
+    auto op = [](ba::asiopq::Connection& conn, auto handler)
+    {
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler, ba::asiopq::IgnoreResult{});
+    };
+    auto handler = [](const boost::system::error_code& ec) {
+
+    };
+
+    for (int i = 0; i < 10000; ++i)
+        pool.exec(op, handler);
+
+    ios.run();
 }
