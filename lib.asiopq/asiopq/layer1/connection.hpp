@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <libpq-fe.h>
 
 #include <boost/asio/async_result.hpp>
@@ -35,7 +37,8 @@ public:
     Connection& operator=(const Connection&) = delete;
 
     explicit Connection(boost::asio::io_service& ios)
-        : m_socket{ std::make_unique<boost::asio::ip::tcp::socket>(ios) }
+        : m_conn{ nullptr, ::PQfinish }
+        , m_socket{ std::make_unique<boost::asio::ip::tcp::socket>(ios) }
     {
     }
 
@@ -44,28 +47,17 @@ public:
         close();
     }
 
-    Connection(Connection&& other) noexcept
-        : m_conn{ other.m_conn }
-        , m_socket{ std::move(other.m_socket) }
-    {
-        other.m_conn = nullptr;
-    }
-
-    Connection& operator=(Connection&& other) noexcept
-    {
-        m_conn = other.m_conn;
-        other.m_conn = nullptr;
-        m_socket = std::move(other.m_socket);
-    }
+    Connection(Connection&& other) = default;
+    Connection& operator=(Connection&& other) = default;
 
     PGconn* get() noexcept
     {
-        return m_conn;
+        return m_conn.get();
     }
 
     const PGconn* get() const noexcept
     {
-        return m_conn;
+        return m_conn.get();
     }
 
     template <typename ConnectHandler>
@@ -83,7 +75,7 @@ public:
             return;?? оказывается libpq сама проверяет
         }*/
 
-        m_conn = ::PQconnectStart(conninfo);
+        m_conn.reset(::PQconnectStart(conninfo));
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
@@ -103,7 +95,7 @@ public:
             return;?? оказывается libpq сама проверяет
         }*/
 
-        m_conn = ::PQconnectStartParams(keywords, values, expandDbname);
+        m_conn.reset(::PQconnectStartParams(keywords, values, expandDbname));
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
@@ -126,7 +118,7 @@ public:
         if (ec)
             m_socket->get_io_service().post(
                   [boundHandler{
-                      ExecOpType{ m_conn, *m_socket, std::move(init.handler)
+                      ExecOpType{ m_conn.get(), *m_socket, std::move(init.handler)
                     , std::forward<ResultCollector>(coll) }
                     }
                 , ec{ ec }] () mutable {
@@ -136,7 +128,7 @@ public:
         else
             m_socket->get_io_service().post(
                 [boundHandler{
-                      ExecOpType{ m_conn, *m_socket, std::move(init.handler)
+                      ExecOpType{ m_conn.get(), *m_socket, std::move(init.handler)
                     , std::forward<ResultCollector>(coll) }
                     }] () mutable {
                     boundHandler(boost::system::error_code{});
@@ -153,11 +145,7 @@ public:
         if (m_socket->is_open())
             m_socket->close(ec);
 
-        if (m_conn)
-        {
-            ::PQfinish(m_conn);
-            m_conn = nullptr;
-        }
+        m_conn.reset();
 
         return ec;
     }
@@ -173,7 +161,7 @@ private:
         int nativeSocket = -1;
 
         if (m_conn)
-            if (-1 != (nativeSocket = ::PQsocket(m_conn)))
+            if (-1 != (nativeSocket = ::PQsocket(m_conn.get())))
                 if (!(ec = detail::dupTcpSocketFromHandle(nativeSocket, *m_socket)))
                     ec = m_socket->non_blocking(true, ec);
             else
@@ -185,12 +173,12 @@ private:
 
         if (ec)
             m_socket->get_io_service().post(
-                [boundHandler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }, ec] () mutable {
+                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, std::move(init.handler) } }, ec] () mutable {
                 boundHandler(ec);
             });
         else
             m_socket->get_io_service().post(
-                [boundHandler{ ConnOpType{ m_conn, *m_socket, std::move(init.handler) } }]() mutable {
+                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, std::move(init.handler) } }]() mutable {
                 boundHandler(boost::system::error_code{});
             });
 
@@ -198,7 +186,7 @@ private:
     }
 
 private:
-    PGconn* m_conn = nullptr;
+    std::unique_ptr<PGconn, decltype(&::PQfinish)> m_conn;
     std::unique_ptr<boost::asio::ip::tcp::socket> m_socket;
 };
 

@@ -31,21 +31,20 @@ public:
         if (!res) // конец данных
             return {};
 
-        const auto status = ::PQresultStatus(res);
-        if (PGRES_FATAL_ERROR == status)
+        switch (::PQresultStatus(res))
         {
-            fprintf(m_fout, "%s", ::PQresultErrorMessage(res));
-            return make_error_code(PQError::RESULT_FATAL_ERROR);
-        }
-        if (PGRES_BAD_RESPONSE == status)
-        {
+        case PGRES_BAD_RESPONSE:
             fprintf(m_fout, "%s\n", ::PQresultErrorMessage(res));
             return make_error_code(PQError::RESULT_BAD_RESPONSE);
+
+        case PGRES_FATAL_ERROR:
+            fprintf(m_fout, "%s", ::PQresultErrorMessage(res));
+            return make_error_code(PQError::RESULT_FATAL_ERROR);
+
+        default:
+            ::PQprint(m_fout, res, &m_opt);
+            return {}; // нет ошибки
         }
-
-        ::PQprint(m_fout, res, &m_opt);
-
-        return {};
     }
 
 private:
