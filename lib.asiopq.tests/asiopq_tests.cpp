@@ -4,6 +4,7 @@
 #define BOOST_COROUTINES_NO_DEPRECATION_WARNING
 
 #include <thread>
+#include <functional>
 
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/use_future.hpp>
@@ -89,6 +90,43 @@ BOOST_AUTO_TEST_CASE(insertTest)
     }
 }
 
+BOOST_AUTO_TEST_CASE(connectionPool)
+{
+    boost::asio::io_service ios{ 4 };
+    //using Completer = std::function<void(const boost::system::error_code&)>;
+    //using Operation = std::function<void(ba::asiopq::Connection&, Completer)>;
+
+    auto op = [](ba::asiopq::Connection& conn, auto&& handler)
+    {
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler);
+    };
+
+    std::atomic_size_t n = 0;
+    auto handler = [&n](const boost::system::error_code& ec) {
+        if (!ec)
+            ++n;
+    };
+
+    ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 10 };
+
+    for (int i = 0; i < 10'000; ++i)
+        pool.exec(op, handler);
+
+    std::vector<std::thread> thrs;
+    for (int i = 0; i < 1; ++i)
+        thrs.emplace_back([&ios] {
+        ios.run();
+            });
+
+    for (auto& thr : thrs)
+    {
+        if (thr.joinable())
+            thr.join();
+    }
+
+    BOOST_CHECK(10'000 == n);
+}
+
 BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
 {
     boost::asio::io_service ios;
@@ -102,7 +140,7 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     ios.run();
     BOOST_CHECK_NO_THROW(deleted.get());
 
-    /*ios.reset();
+    ios.reset();
     std::future<void> dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_NO_THROW(dropped.get());
@@ -111,27 +149,5 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     ios.reset();
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
-    BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);*/
-}
-
-BOOST_AUTO_TEST_CASE(connectionPool)
-{
-    boost::asio::io_service ios;
-    ba::asiopq::ConnectionPool pool{ ios, 10 };
-
-    ios.run();
-    ios.reset();
-
-    auto op = [](ba::asiopq::Connection& conn, auto handler)
-    {
-        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler, ba::asiopq::IgnoreResult{});
-    };
-    auto handler = [](const boost::system::error_code& ec) {
-        auto a = 1;
-    };
-
-    for (int i = 0; i < 10000; ++i)
-        pool.exec(op, handler);
-
-    ios.run();
+    BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
 }
