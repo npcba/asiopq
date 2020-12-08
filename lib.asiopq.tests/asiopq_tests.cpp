@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE(connectionPool)
         ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler);
     };
 
-    std::atomic_size_t n = 0;
+    std::atomic_size_t n{ 0 };
     auto handler = [&n](const boost::system::error_code& ec) {
         if (!ec)
             ++n;
