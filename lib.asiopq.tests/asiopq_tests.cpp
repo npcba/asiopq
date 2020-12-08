@@ -119,12 +119,15 @@ BOOST_AUTO_TEST_CASE(connectionPool)
     boost::asio::io_service ios;
     ba::asiopq::ConnectionPool pool{ ios, 10 };
 
+    ios.run();
+    ios.reset();
+
     auto op = [](ba::asiopq::Connection& conn, auto handler)
     {
         ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler, ba::asiopq::IgnoreResult{});
     };
     auto handler = [](const boost::system::error_code& ec) {
-
+        auto a = 1;
     };
 
     for (int i = 0; i < 10000; ++i)

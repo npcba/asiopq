@@ -108,7 +108,6 @@ public:
 
         switch (const bool JUMP_OVER_FIRST_CHECK = {})
         {
-        default:
             for (;;)
             {
                 if (::PQisBusy(Base::m_conn)) // если команда еще в процессе
