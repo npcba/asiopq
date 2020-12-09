@@ -42,13 +42,13 @@ void insertCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
     ba::asiopq::Connection conn{ ios };
     conn.asyncConnect(CONNECTION_STRING, yield);
-    ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq (foo, bar) VALUES($1, $2)" };
+    ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq(foo, bar) VALUES('a', 'b')" };
 
-    for (int i = 0; i < 1000; ++i)
-        query(ba::asiopq::makeTextParamsView("teststringdata1", "teststringdata2"), yield);
+    for (int i = 0; i < 25000; ++i)
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", yield);
 }
 
-BOOST_AUTO_TEST_CASE(connectTest)
+/*BOOST_AUTO_TEST_CASE(connectTest)
 {
     boost::asio::io_service ios;
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
@@ -56,7 +56,7 @@ BOOST_AUTO_TEST_CASE(connectTest)
         });
 
     ios.run();
-}
+}*/
 
 BOOST_AUTO_TEST_CASE(createTableTest)
 {
@@ -68,17 +68,17 @@ BOOST_AUTO_TEST_CASE(createTableTest)
     ios.run();
 }
 
-BOOST_AUTO_TEST_CASE(insertTest)
+/*BOOST_AUTO_TEST_CASE(insertTest)
 {
-    boost::asio::io_service ios{ 4 };
+    boost::asio::io_service ios;
 
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 40; ++i)
         boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
             insertCoro(ios, yield);
         });
 
     std::vector<std::thread> thrs;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 1; ++i)
         thrs.emplace_back([&ios] {
             ios.run();
             });
@@ -88,7 +88,7 @@ BOOST_AUTO_TEST_CASE(insertTest)
         if (thr.joinable())
             thr.join();
     }
-}
+}*/
 
 BOOST_AUTO_TEST_CASE(connectionPool)
 {
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(connectionPool)
 
     ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 10 };
 
-    for (int i = 0; i < 10'000; ++i)
+    for (int i = 0; i < 10'000'00; ++i)
         pool.exec(op, handler);
 
     std::vector<std::thread> thrs;
@@ -124,10 +124,10 @@ BOOST_AUTO_TEST_CASE(connectionPool)
             thr.join();
     }
 
-    BOOST_CHECK(10'000 == n);
+    BOOST_CHECK(10'000'00 == n);
 }
 
-BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
+/*BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
 {
     boost::asio::io_service ios;
     ba::asiopq::Connection conn{ ios };
@@ -150,4 +150,4 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
-}
+}*/

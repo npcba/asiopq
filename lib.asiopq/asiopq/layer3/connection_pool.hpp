@@ -38,8 +38,10 @@ public:
             }
 
             auto conn = m_ready.begin();
-            m_busy.splice(m_busy.end(), m_ready, conn);
-            std::move(op)(*conn, [this, conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable { handleExec(conn, std::move(handler), ec); });
+            setBusy(conn);
+            m_strand.get_io_service().post([op{ std::move(op) }, this, conn, handler{ std::move(handler) }]() mutable {
+                op(*conn, m_strand.wrap([this, conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable { handleExec(conn, std::move(handler), ec); }));
+            });
         });
     }
 
@@ -52,7 +54,7 @@ private:
     template <typename Handler>
     void handleExec(std::list<Connection>::iterator conn, Handler&& handler, const boost::system::error_code& ec)
     {
-        startPending(conn);
+        startOnePending(conn);
         std::forward<Handler>(handler)(ec);
     }
 
@@ -61,22 +63,36 @@ private:
         if (ec)
             return connect(conn);
 
-        startPending(conn);
+        startOnePending(conn);
     }
 
-    void startPending(std::list<Connection>::iterator conn)
+    void setReady(std::list<Connection>::iterator conn)
+    {
+        m_ready.splice(m_ready.end(), m_busy, conn);
+    }
+
+    void setBusy(std::list<Connection>::iterator conn)
+    {
+        m_busy.splice(m_busy.end(), m_ready, conn);
+    }
+    
+    void startOnePending(std::list<Connection>::iterator conn)
     {
         if (::PQstatus(conn->get()) != ::CONNECTION_OK)
             return connect(conn);
 
         if (m_opQueue.empty())
         {
-            m_ready.splice(m_ready.end(), m_busy, conn);
+            setReady(conn);
         }
         else
         {
-            auto& op = m_opQueue.front();
-            op.first(*conn, m_strand.wrap([this, conn, handler{ std::move(op.second) }](const boost::system::error_code& ec) mutable {handleExec(conn, std::move(handler), ec); }));
+            auto& pair = m_opQueue.front();
+            m_strand.get_io_service().post([pair{ std::move(pair) }, this, conn]() mutable {
+                auto& op = pair.first;
+                auto& handler = pair.second;
+                op(*conn, m_strand.wrap([this, conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable { handleExec(conn, std::move(handler), ec); }));
+            });
             m_opQueue.pop();
         }
     }
