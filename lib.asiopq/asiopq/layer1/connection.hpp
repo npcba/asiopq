@@ -115,12 +115,17 @@ public:
         boost::system::error_code ec = cmd();
 
         using ExecOpType = detail::ExecOp<decltype(init.handler), ResultCollector>;
+        // здесь разделено на 2 разных вызова: в случае ошибки ec уходит в капчу,
+        // а в нормальном режиме идет экономия 16 байт за счет отсутствия ec в капче,
+        // но ценой инстанцирования 2-х разных шаблонов
         if (ec)
             m_socket->get_io_service().post(
                   [boundHandler{
                       ExecOpType{ m_conn.get(), *m_socket, std::move(init.handler)
                     , std::forward<ResultCollector>(coll) }
                     }
+                // Явное копирование ec в капче сделано намеренно. Если кто-то вдруг при рефакторинге кода объявит ec константой,
+                // то это выражение спасает от ситуации, когда вся лямбда потеряет move-конструктор, что могло бы снизить производительность.
                 , ec{ ec }] () mutable {
                     boundHandler(ec);
                     }
@@ -171,6 +176,9 @@ private:
 
         using ConnOpType = detail::ConnectOp<decltype(init.handler)>;
 
+        // здесь разделено на 2 разных вызова: в случае ошибки ec уходит в капчу,
+        // а в нормальном режиме идет экономия 16 байт за счет отсутствия ec в капче,
+        // но ценой инстанцирования 2-х разных шаблонов
         if (ec)
             m_socket->get_io_service().post(
                 [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, std::move(init.handler) } }, ec] () mutable {
