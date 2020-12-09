@@ -27,7 +27,7 @@ public:
 protected:
     void invokeHandler(const boost::system::error_code& ec)
     {
-        boost::asio::detail::binder1<CompletionHandler, boost::system::error_code> binder{ m_handler, ec };
+        boost::asio::detail::binder1<CompletionHandler, boost::system::error_code> binder{ std::move(m_handler), ec };
         boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
     }
 

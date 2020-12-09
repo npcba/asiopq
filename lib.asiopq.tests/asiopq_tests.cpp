@@ -48,6 +48,19 @@ void insertCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
         ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", yield);
 }
 
+void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
+{
+    auto op = [](ba::asiopq::Connection& conn, auto&& handler)
+    {
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler);
+    };
+
+    ba::asiopq::ConnectionPool<decltype(op), decltype(yield)> pool{ ios, 2, "postgresql://ctest:ctest@localhost/ctest" };
+
+    for (int i = 0; i < 25'000; ++i)
+        pool.exec(op, yield);
+}
+
 /*BOOST_AUTO_TEST_CASE(connectTest)
 {
     boost::asio::io_service ios;
@@ -90,9 +103,9 @@ BOOST_AUTO_TEST_CASE(createTableTest)
     }
 }*/
 
-BOOST_AUTO_TEST_CASE(connectionPool)
+/*BOOST_AUTO_TEST_CASE(poolTest)
 {
-    boost::asio::io_service ios{ 4 };
+    boost::asio::io_service ios;
     //using Completer = std::function<void(const boost::system::error_code&)>;
     //using Operation = std::function<void(ba::asiopq::Connection&, Completer)>;
 
@@ -107,7 +120,7 @@ BOOST_AUTO_TEST_CASE(connectionPool)
             ++n;
     };
 
-    ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 10 };
+    ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 40, "postgresql://ctest:ctest@localhost/ctest" };
 
     for (int i = 0; i < 10'000'00; ++i)
         pool.exec(op, handler);
@@ -125,6 +138,28 @@ BOOST_AUTO_TEST_CASE(connectionPool)
     }
 
     BOOST_CHECK(10'000'00 == n);
+}*/
+
+BOOST_AUTO_TEST_CASE(coroPoolTest)
+{
+    boost::asio::io_service ios;
+
+    for (int i = 0; i < 40; ++i)
+        boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
+            poolCoro(ios, yield);
+        });
+
+    std::vector<std::thread> thrs;
+    for (int i = 0; i < 2; ++i)
+        thrs.emplace_back([&ios] {
+            ios.run();
+            });
+
+    for (auto& thr : thrs)
+    {
+        if (thr.joinable())
+            thr.join();
+    }
 }
 
 /*BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
