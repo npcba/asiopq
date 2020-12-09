@@ -36,8 +36,8 @@ public:
 
         for (const auto& kv : m_params)
         {
-            m_keywords.push_back(kv.first);
-            m_values.push_back(kv.second);
+            m_keywords.push_back(kv.first.c_str());
+            m_values.push_back(kv.second.c_str());
         }
 
         m_keywords.push_back(nullptr);
