@@ -11,6 +11,73 @@
 namespace ba {
 namespace asiopq {
 
+template<typename Op>
+struct Composed
+{
+    template <typename Handler>
+    void operator()(Connection& conn, Handler&& handler)
+    {
+        op(conn, std::forward<Handler>(handler));
+    }
+
+    template <typename Handler>
+    void operator()(Connection& conn, Handler&& handler) const
+    {
+        op(conn, std::forward<Handler>(handler));
+    }
+
+    Op op;
+};
+
+template <typename Op>
+Composed<std::decay_t<Op>> compose(Op&& op)
+{
+    return {std::forward<Op>(op)};
+}
+
+template<typename Pred, typename Op1, typename Op2>
+auto composeOperations(Op1&& op1, Op2&& op2)
+{
+    return [op1{ std::forward<Op1>(op1) }, op2{ std::forward<Op2>(op2) }](Connection& conn, auto&& handler) mutable {
+        op1(conn, [op2{ std::move(op2) }, &conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable {
+            if (Pred{}(ec))
+                op2(conn, std::move(handler));
+            else
+                handler(ec);
+        });
+    };
+}
+
+struct Always { bool operator()(const boost::system::error_code&) const { return true; } };
+struct IfError { bool operator()(const boost::system::error_code& ec) const { return bool(ec); } };
+struct IfNotError{ bool operator()(const boost::system::error_code& ec) const { return !ec; } };
+
+#define BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(operator_, pred) \
+template<typename Op1, typename Op2> \
+auto operator operator_(Composed<Op1>&& op1, Op2&& op2) \
+{ \
+    return compose(composeOperations<pred>(std::forward<Op1>(op1.op), std::forward<Op2>(op2))); \
+} \
+\
+template<typename Op1, typename Op2> \
+auto operator operator_(Op1&& op1, Composed<Op2>&& op2) \
+{ \
+    return compose(composeOperations<pred>(std::forward<Op1>(op1), std::forward<Op2>(op2.op))); \
+} \
+\
+template<typename Op1, typename Op2> \
+auto operator operator_(Composed<Op1>&& op1, Composed<Op2>&& op2) \
+{ \
+    return compose(composeOperations<pred>(std::forward<Op1>(op1.op), std::forward<Op2>(op2.op))); \
+} \
+/**/
+
+BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(+, Always)
+BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(|, IfError)
+BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(&, IfNotError)
+
+#undef BA_LIBPQ_DECLARE_COMPOSE_OPERATOR_
+
 template <
       typename Operation
     , typename CompletionHandler

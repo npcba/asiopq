@@ -57,10 +57,11 @@ public:
     {
     }
 
-    void operator()(const boost::system::error_code& ec)
+    void operator()(const boost::system::error_code&)
     {
-        if (ec)
-            return Base::invokeHandler(ec);
+        // пусть PQconnectPoll сам обработает ошибку
+        //if (ec)
+        //    return Base::invokeHandler(ec);
 
         const auto pollResult = ::PQconnectPoll(Base::m_conn);
         switch (pollResult)
@@ -101,10 +102,11 @@ public:
     {
     }
 
-    void operator()(const boost::system::error_code& ec)
+    void operator()(const boost::system::error_code&)
     {
-        if (ec)
-            return Base::invokeHandler(ec);
+        // пусть PQconsumeInput сам обработает ошибку
+        //if (ec)
+        //    return Base::invokeHandler(ec);
 
         switch (const bool JUMP_OVER_FIRST_CHECK = {})
         {
