@@ -44,7 +44,7 @@ void insertCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
     conn.asyncConnect(CONNECTION_STRING, yield);
     ba::asiopq::AutoPreparedQuery<> query{ conn, "insert into asiopq(foo, bar) VALUES('a', 'b')" };
 
-    for (int i = 0; i < 25000; ++i)
+    for (int i = 0; i < 1'000; ++i)
         ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", yield);
 }
 
@@ -52,16 +52,17 @@ void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
     auto op = [](ba::asiopq::Connection& conn, auto&& handler)
     {
-        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler);
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
     };
 
     ba::asiopq::ConnectionPool<decltype(op), decltype(yield)> pool{ ios, 2, "postgresql://ctest:ctest@localhost/ctest" };
 
-    for (int i = 0; i < 25'000; ++i)
-        pool.exec(op, yield);
+    const ba::asiopq::Connection* conn;
+    for (int i = 0; i < 1'000; ++i)
+        conn = pool.exec(op, yield);
 }
 
-/*BOOST_AUTO_TEST_CASE(connectTest)
+BOOST_AUTO_TEST_CASE(connectTest)
 {
     boost::asio::io_service ios;
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
@@ -69,7 +70,7 @@ void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
         });
 
     ios.run();
-}*/
+}
 
 BOOST_AUTO_TEST_CASE(createTableTest)
 {
@@ -81,17 +82,17 @@ BOOST_AUTO_TEST_CASE(createTableTest)
     ios.run();
 }
 
-/*BOOST_AUTO_TEST_CASE(insertTest)
+BOOST_AUTO_TEST_CASE(insertTest)
 {
     boost::asio::io_service ios;
 
-    for (int i = 0; i < 40; ++i)
+    for (int i = 0; i < 10; ++i)
         boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
             insertCoro(ios, yield);
         });
 
     std::vector<std::thread> thrs;
-    for (int i = 0; i < 1; ++i)
+    for (int i = 0; i < 4; ++i)
         thrs.emplace_back([&ios] {
             ios.run();
             });
@@ -101,9 +102,9 @@ BOOST_AUTO_TEST_CASE(createTableTest)
         if (thr.joinable())
             thr.join();
     }
-}*/
+}
 
-/*BOOST_AUTO_TEST_CASE(poolTest)
+BOOST_AUTO_TEST_CASE(poolTest)
 {
     boost::asio::io_service ios;
     //using Completer = std::function<void(const boost::system::error_code&)>;
@@ -115,18 +116,18 @@ BOOST_AUTO_TEST_CASE(createTableTest)
     };
 
     std::atomic_size_t n{ 0 };
-    auto handler = [&n](const boost::system::error_code& ec) {
+    auto handler = [&n](const boost::system::error_code& ec, const ba::asiopq::Connection* conn) {
         if (!ec)
             ++n;
     };
 
     ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 40, "postgresql://ctest:ctest@localhost/ctest" };
 
-    for (int i = 0; i < 10'000'00; ++i)
+    for (int i = 0; i < 10'000; ++i)
         pool.exec(op, handler);
 
     std::vector<std::thread> thrs;
-    for (int i = 0; i < 1; ++i)
+    for (int i = 0; i < 4; ++i)
         thrs.emplace_back([&ios] {
         ios.run();
             });
@@ -137,20 +138,20 @@ BOOST_AUTO_TEST_CASE(createTableTest)
             thr.join();
     }
 
-    BOOST_CHECK(10'000'00 == n);
-}*/
+    BOOST_CHECK(10'000 == n);
+}
 
 BOOST_AUTO_TEST_CASE(coroPoolTest)
 {
     boost::asio::io_service ios;
 
-    for (int i = 0; i < 40; ++i)
+    for (int i = 0; i < 10; ++i)
         boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
             poolCoro(ios, yield);
         });
 
     std::vector<std::thread> thrs;
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 4; ++i)
         thrs.emplace_back([&ios] {
             ios.run();
             });

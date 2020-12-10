@@ -76,6 +76,8 @@ public:
         }*/
 
         m_conn.reset(::PQconnectStart(conninfo));
+        assert(m_conn);
+
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 
@@ -96,6 +98,8 @@ public:
         }*/
 
         m_conn.reset(::PQconnectStartParams(keywords, values, expandDbname));
+        assert(m_conn);
+
         return startConnectPoll(std::forward<ConnectHandler>(handler));
     }
 

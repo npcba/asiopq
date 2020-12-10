@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <vector>
 #include <string>
 #include <list>
 #include <queue>
@@ -10,7 +11,7 @@
 namespace ba {
 namespace asiopq {
 
-template <typename Operation, typename CompletionHandler>
+template <typename Operation, typename CompletionHandler, typename ConnectOp = std::function<void (Connection&, std::function<void(boost::system::error_code)>)>>
 class ConnectionPool
 {
 public:
@@ -19,44 +20,27 @@ public:
     ConnectionPool(ConnectionPool&&) = delete;
     ConnectionPool& operator=(ConnectionPool&&) = delete;
 
-    ConnectionPool(boost::asio::io_service& ios, std::size_t size, std::string conninfo)
+    ConnectionPool(boost::asio::io_service& ios, std::size_t size, ConnectOp connectOp)
         : m_strand{ ios }
-        , m_conninfo{ std::move(conninfo) }
+        , m_connectOp{ std::move(connectOp) }
     {
         startPool(ios, size);
     }
 
-    ConnectionPool(boost::asio::io_service& ios, std::size_t size, std::map<std::string, std::string> params, bool expandDbname = false)
-        : m_strand{ ios }
-        , m_params{ std::move(params) }
-        , m_expandDbname{ expandDbname }
+    ConnectionPool(boost::asio::io_service& ios, std::size_t size, std::string conninfo)
+        : ConnectionPool{ ios, size,  makeConnectOp(std::move(conninfo))}
     {
-        m_keywords.reserve(m_params.size() + 1);
-        m_values.reserve(m_params.size() + 1);
+    }
 
-        for (const auto& kv : m_params)
-        {
-            m_keywords.push_back(kv.first.c_str());
-            m_values.push_back(kv.second.c_str());
-        }
-
-        m_keywords.push_back(nullptr);
-        m_values.push_back(nullptr);
-
-        startPool(ios, size);
+    ConnectionPool(boost::asio::io_service& ios, std::size_t size, std::map<std::string, std::string> params, bool expandDbname = false)
+        : ConnectionPool{ ios, size,  makeConnectOp(std::move(params), expandDbname) }
+    {
     }
 
     template <typename OtherOp, typename OtherHandler>
     auto exec(OtherOp&& op, OtherHandler&& handler)
     {
-        // If you get an error on the following line it means that your handler does
-        // not meet the documented type requirements for a ConnectHandler:
-        // void handler(
-        //     const boost::system::error_code & ec // Result of operation
-        // );
-        boost::asio::ba_asiopq_handlerCheck(handler);
-
-        boost::asio::detail::async_result_init<OtherHandler, void(boost::system::error_code)>
+        boost::asio::detail::async_result_init<OtherHandler, void(boost::system::error_code, const Connection*)>
             init{ std::forward<OtherHandler>(handler) };
 
         m_strand.dispatch([this, op{ std::forward<OtherOp>(op) }, handler{ std::move(init.handler) }]() mutable {
@@ -77,6 +61,35 @@ public:
     }
 
 private:
+    auto makeConnectOp(std::string&& conninfo)
+    {
+        return [conninfo{ std::move(conninfo) }](Connection& conn, auto&& handler){
+            conn.asyncConnect(conninfo.c_str(), std::forward<decltype(handler)>(handler));
+        };
+    }
+
+    auto makeConnectOp(std::map<std::string, std::string>&& params, bool expandDbname)
+    {
+        std::vector<const char*> keywords;
+        std::vector<const char*> values;
+
+        keywords.reserve(params.size() + 1);
+        values.reserve(params.size() + 1);
+
+        for (const auto& kv : params)
+        {
+            keywords.push_back(kv.first.c_str());
+            values.push_back(kv.second.c_str());
+        }
+
+        keywords.push_back(nullptr);
+        values.push_back(nullptr);
+
+        return [params{ std::move(params) }, keywords{ std::move(keywords) }, values{ std::move(values) }, expandDbname](Connection& conn, auto&& handler) {
+            conn.asyncConnectParams(keywords.data(), values.data(), int(expandDbname), std::forward<decltype(handler)>(handler));
+        };
+    }
+
     void startPool(boost::asio::io_service& ios, std::size_t size)
     {
         if (0 == size)
@@ -91,10 +104,7 @@ private:
 
     void connect(std::list<Connection>::iterator conn)
     {
-        if (m_keywords.empty())
-            conn->asyncConnect(m_conninfo.c_str(), m_strand.wrap([this, conn](const boost::system::error_code& ec) { handleConnect(conn, ec); }));
-        else
-            conn->asyncConnectParams(m_keywords.data(), m_values.data(), int(m_expandDbname), m_strand.wrap([this, conn](const boost::system::error_code& ec) { handleConnect(conn, ec); }));
+        m_connectOp(*conn, m_strand.wrap([this, conn](const boost::system::error_code& ec) { handleConnect(conn, ec); }));
     }
 
     template <typename Handler>
@@ -102,7 +112,7 @@ private:
     {
         startOnePending(conn);
 
-        boost::asio::detail::binder1<Handler, boost::system::error_code> binder{ std::move(handler), ec };
+        boost::asio::detail::binder2<Handler, boost::system::error_code, const Connection*> binder{ std::move(handler), ec, &*conn };
         boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
     }
 
@@ -146,15 +156,11 @@ private:
     }
 
 private:
-    using TrueCompletionHandler = typename boost::asio::handler_type<CompletionHandler, void(boost::system::error_code)>::type;
+    using TrueCompletionHandler = typename boost::asio::handler_type<CompletionHandler, void(boost::system::error_code, const Connection*)>::type;
 
 private:
     boost::asio::io_service::strand m_strand;
-    std::string m_conninfo;
-    std::map<std::string, std::string> m_params;
-    std::vector<const char*> m_keywords;
-    std::vector<const char*> m_values;
-    bool m_expandDbname = false;
+    ConnectOp m_connectOp;;
     std::list<Connection> m_ready;
     std::list<Connection> m_busy;
     std::queue<std::pair<Operation, TrueCompletionHandler>> m_opQueue;
