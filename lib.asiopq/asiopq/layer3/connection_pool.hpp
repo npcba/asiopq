@@ -92,22 +92,7 @@ BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(&, IfNotError)
 
 #undef BA_LIBPQ_DECLARE_COMPOSE_OPERATOR_
 
-template <typename Op, typename ConnectOp>
-auto connectionCheckedOperation(Op op, ConnectOp connectOp)
-{
-    struct IfDisconnected
-    {
-        bool operator()(const boost::system::error_code& ec, const Connection& conn) const
-        {
-            return bool(ec) && ::PQstatus(conn.get()) != ::CONNECTION_OK;
-        }
-    };
-
-    // нужно 2 копии операции: для первого вызова и повторного, в случае неудачи
-    // TODO: намудрить со ссылками или указателями или проксями, чтобы ссылаться на один инстанс
-    auto copy{ compose(op) };
-    return compose<IfDisconnected>(std::move(op), std::move(connectOp) & std::move(copy));
-}
+using PolymorphicOperationType = std::function<void(Connection&, std::function<void(boost::system::error_code)>)>;
 
 template <typename Operation, typename CompletionHandler>
 class ConnectionPool
@@ -221,15 +206,80 @@ private:
     std::queue<std::pair<Operation, TrueCompletionHandler>> m_opQueue;
 };
 
+template <typename Op, typename ConnectOp>
+auto makeCheckedOperation(Op op, ConnectOp connectOp)
+{
+    struct IfDisconnected
+    {
+        bool operator()(const boost::system::error_code& ec, const Connection& conn) const
+        {
+            return bool(ec) && ::PQstatus(conn.get()) != ::CONNECTION_OK;
+        }
+    };
+
+    // нужно 2 копии операции: для первого вызова и повторного, в случае неудачи
+    // TODO: намудрить со ссылками или указателями или проксями, чтобы ссылаться на один инстанс
+    auto copy{ compose(op) };
+    return compose<IfDisconnected>(std::move(op), std::move(connectOp) & std::move(copy));
+}
+
+inline auto makeConnectOperation(std::string&& conninfo)
+{
+    return [conninfo{ std::move(conninfo) }](Connection& conn, auto&& handler){
+        conn.asyncConnect(conninfo.c_str(), std::forward<decltype(handler)>(handler));
+    };
+}
+
+inline auto makeConnectOperation(std::map<std::string, std::string>&& params, bool expandDbname = false)
+{
+    struct Capture
+    {
+        std::map<std::string, std::string> params;
+        std::vector<const char*> keywordsView;
+        std::vector<const char*> valuesView;
+        bool expandDbname;
+    };
+
+    // тот самый случай, когда shared_ptr полезен, параметры жирные, но иммутабельные, пусть все копии лямбды шарят их,
+    // иначе лямбда станет слишком жирной
+    auto capture = std::make_shared<Capture>();
+    auto& capturedParams = capture->params = std::move(params);
+    capture->expandDbname = expandDbname;
+
+    auto& keywordsView = capture->keywordsView;;
+    auto& valuesView = capture->valuesView;
+    keywordsView.reserve(capturedParams.size() + 1);
+    valuesView.reserve(capturedParams.size() + 1);
+
+    for (const auto& kv : capturedParams)
+    {
+        keywordsView.push_back(kv.first.c_str());
+        valuesView.push_back(kv.second.c_str());
+    }
+
+    keywordsView.push_back(nullptr);
+    valuesView.push_back(nullptr);
+
+    return [capture{ std::move(capture) }](Connection& conn, auto&& handler)
+    {
+        conn.asyncConnectParams(
+                capture->keywordsView.data()
+            , capture->valuesView.data()
+            , int(capture->expandDbname)
+            , std::forward<decltype(handler)>(handler)
+            );
+    };
+}
+
 template <
       typename Operation
     , typename CompletionHandler
-    , typename ConnectOp = std::function<void (Connection&, std::function<void(boost::system::error_code)>)>
+    , typename ConnectOp = PolymorphicOperationType
     >
 class ReconnectionPool
-    : public ConnectionPool<decltype(connectionCheckedOperation(std::declval<Operation>(), std::declval<ConnectOp>())), CompletionHandler>
+    : public ConnectionPool<decltype(makeCheckedOperation(std::declval<Operation>(), std::declval<ConnectOp>())), CompletionHandler>
 {
-    using Base = ConnectionPool<decltype(connectionCheckedOperation(std::declval<Operation>(), std::declval<ConnectOp>())), CompletionHandler>;
+    using Base = ConnectionPool<decltype(makeCheckedOperation(std::declval<Operation>(), std::declval<ConnectOp>())), CompletionHandler>;
 
 public:
     ReconnectionPool(const ReconnectionPool&) = delete;
@@ -250,7 +300,7 @@ public:
     }
 
     ReconnectionPool(boost::asio::io_service& ios, std::size_t size, std::string conninfo)
-        : ReconnectionPool{ ios, size,  makeConnectOp(std::move(conninfo))}
+        : ReconnectionPool{ ios, size,  makeConnectOperation(std::move(conninfo))}
     {
     }
 
@@ -260,7 +310,7 @@ public:
         , std::map<std::string, std::string> params
         , bool expandDbname = false
         )
-        : ReconnectionPool{ ios, size,  makeConnectOp(std::move(params), expandDbname) }
+        : ReconnectionPool{ ios, size,  makeConnectOperation(std::move(params), expandDbname) }
     {
     }
 
@@ -268,61 +318,43 @@ public:
     template <typename OtherOp, typename OtherHandler>
     auto exec(OtherOp&& op, OtherHandler&& handler)
     {
-        return Base::exec(connectionCheckedOperation(std::forward<OtherOp>(op), m_connectOp), std::forward<OtherHandler>(handler));
-    }
-
-private:
-    static auto makeConnectOp(std::string&& conninfo)
-    {
-        return [conninfo{ std::move(conninfo) }](Connection& conn, auto&& handler){
-            conn.asyncConnect(conninfo.c_str(), std::forward<decltype(handler)>(handler));
-        };
-    }
-
-    static auto makeConnectOp(std::map<std::string, std::string>&& params, bool expandDbname)
-    {
-        struct Capture
-        {
-            std::map<std::string, std::string> params;
-            std::vector<const char*> keywordsView;
-            std::vector<const char*> valuesView;
-            bool expandDbname;
-        };
-
-        // тот самый случай, когда shared_ptr полезен, параметры жирные, но иммутабельные, пусть все копии лямбды шарят их,
-        // иначе лямбда станет слишком жирной
-        auto capture = std::make_shared<Capture>();
-        auto& capturedParams = capture->params = std::move(params);
-        capture->expandDbname = expandDbname;
-
-        auto& keywordsView = capture->keywordsView;;
-        auto& valuesView = capture->valuesView;
-        keywordsView.reserve(capturedParams.size() + 1);
-        valuesView.reserve(capturedParams.size() + 1);
-
-        for (const auto& kv : capturedParams)
-        {
-            keywordsView.push_back(kv.first.c_str());
-            valuesView.push_back(kv.second.c_str());
-        }
-
-        keywordsView.push_back(nullptr);
-        valuesView.push_back(nullptr);
-
-        return [capture{ std::move(capture) }](Connection& conn, auto&& handler)
-        {
-            conn.asyncConnectParams(
-                  capture->keywordsView.data()
-                , capture->valuesView.data()
-                , int(capture->expandDbname)
-                , std::forward<decltype(handler)>(handler)
-                );
-        };
+        return Base::exec(makeCheckedOperation(std::forward<OtherOp>(op), m_connectOp), std::forward<OtherHandler>(handler));
     }
 
 private:
     ConnectOp m_connectOp;
 };
+
+// make-функции позволяют вывести параметр шаблона ConnectOp
+// пул не умеет ни копироваться, ни перемещаться, поэтому через unique_ptr
+
+struct SFINAECheck_
+{
+    static auto operationSignature()
+    {
+        return std::declval<PolymorphicOperationType>();
+    }
+};
+
+// тут нужен SFINAE, т.к. компилятор 3-й аргумент char* направляет в шаблонный  ConnectOp&&, вместо std::string версию,
+// поэтому проверяем connectOp на верную callable-сигнатуру через попытку присвоить его в объект типа PolymorphicOperationType
+template <typename Operation, typename CompletionHandler, typename ConnectOp, typename = decltype(SFINAECheck_::operationSignature() = std::declval<ConnectOp>())>
+auto makeReconnectionPool(boost::asio::io_service& ios, std::size_t size, ConnectOp&& connectOp)
+{
+    return std::make_unique<ReconnectionPool<Operation, CompletionHandler, std::decay_t<ConnectOp>>>(ios, size, std::forward<ConnectOp>(connectOp));
+}
+
+template <typename Operation, typename CompletionHandler>
+auto makeReconnectionPool(boost::asio::io_service& ios, std::size_t size, std::string conninfo)
+{
+    return makeReconnectionPool<Operation, CompletionHandler>(ios, size, makeConnectOperation(std::move(conninfo)));
+}
+
+template <typename Operation, typename CompletionHandler>
+auto makeReconnectionPool(boost::asio::io_service& ios, std::size_t size, std::map<std::string, std::string> params, bool expandDbname = false)
+{
+    return makeReconnectionPool<Operation, CompletionHandler>(ios, size, makeConnectOperation(std::move(params), expandDbname));
+}
 
 } // namespace asiopq
 } // namespace ba

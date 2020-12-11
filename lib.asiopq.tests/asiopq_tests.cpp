@@ -143,11 +143,13 @@ BOOST_AUTO_TEST_CASE(poolTest)
         }
     };
 
-    ba::asiopq::ReconnectionPool<decltype(queryOp), decltype(handler)>
-        pool{ ios, 40, "postgresql://ctest:ctest@localhost/ctest" };
+    const auto pool = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, "postgresql://ctest:ctest@localhost/ctest");
+    const auto pool2 = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, ba::asiopq::makeConnectOperation("postgresql://ctest:ctest@localhost/ctest"));
+    const auto pool3 = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, { {} }, false);
+
 
     for (int i = 0; i < 10'000; ++i)
-        pool.exec(queryOp, handler);
+        pool->exec(queryOp, handler);
 
     std::vector<std::thread> thrs;
     for (int i = 0; i < 4; ++i)
