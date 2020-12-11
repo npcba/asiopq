@@ -8,6 +8,7 @@
 #include <list>
 #include <queue>
 #include <memory>
+#include <functional>
 
 namespace ba {
 namespace asiopq {

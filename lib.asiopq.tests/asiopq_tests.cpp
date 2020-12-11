@@ -10,7 +10,6 @@
 #include <asiopq/dump_result.hpp>
 
 #include <thread>
-#include <functional>
 
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/use_future.hpp>
@@ -189,7 +188,7 @@ BOOST_AUTO_TEST_CASE(coroPoolTest)
     }
 }
 
-/*BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
+BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
 {
     boost::asio::io_service ios;
     ba::asiopq::Connection conn{ ios };
@@ -212,4 +211,4 @@ BOOST_AUTO_TEST_CASE(coroPoolTest)
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
-}*/
+}
