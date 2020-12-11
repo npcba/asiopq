@@ -50,12 +50,25 @@ void insertCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 
 void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
-    auto op = [](ba::asiopq::Connection& conn, auto&& handler)
+    auto connectOp = [](ba::asiopq::Connection& conn, auto&& handler)
     {
-        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
+        conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", std::forward<decltype(handler)>(handler));
     };
+    
+    auto queryOp = ba::asiopq::compose([](ba::asiopq::Connection& conn, auto&& handler)
+    {
+            if (::CONNECTION_OK != ::PQstatus(conn.get()))
+            {
+                handler(make_error_code(ba::asiopq::PQError::SEND_QUERY_FAILED));
+                return;
+            }
 
-    ba::asiopq::ConnectionPool<decltype(op), decltype(yield)> pool{ ios, 2, "postgresql://ctest:ctest@localhost/ctest" };
+            ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
+    });
+
+    auto op = (ba::asiopq::compose(queryOp) | connectOp & queryOp);
+
+    ba::asiopq::ConnectionPool<decltype(op), decltype(yield)> pool{ ios, 2 };
 
     const ba::asiopq::Connection* conn;
     for (int i = 0; i < 1'000; ++i)
@@ -107,21 +120,38 @@ BOOST_AUTO_TEST_CASE(insertTest)
 BOOST_AUTO_TEST_CASE(poolTest)
 {
     boost::asio::io_service ios;
-    //using Completer = std::function<void(const boost::system::error_code&)>;
-    //using Operation = std::function<void(ba::asiopq::Connection&, Completer)>;
 
-    auto op = [](ba::asiopq::Connection& conn, auto&& handler)
+    auto connectOp = [](ba::asiopq::Connection& conn, auto&& handler)
     {
-        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", handler);
+        conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", std::forward<decltype(handler)>(handler));
     };
+    
+    auto queryOp = ba::asiopq::compose([](ba::asiopq::Connection& conn, auto&& handler)
+    {
+        if (::CONNECTION_OK != ::PQstatus(conn.get()))
+        {
+            handler(make_error_code(ba::asiopq::PQError::SEND_QUERY_FAILED));
+            return;
+        }
+
+        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
+    });
 
     std::atomic_size_t n{ 0 };
     auto handler = [&n](const boost::system::error_code& ec, const ba::asiopq::Connection* conn) {
         if (!ec)
             ++n;
+        else
+        {
+            const char* err = ::PQerrorMessage(conn->get());
+            auto a = 1;
+        }
     };
 
-    ba::asiopq::ConnectionPool<decltype(op), decltype(handler)> pool{ ios, 40, "postgresql://ctest:ctest@localhost/ctest" };
+    auto op = (ba::asiopq::compose(queryOp) | connectOp & queryOp);
+
+    ba::asiopq::ConnectionPool<decltype(op), decltype(handler)>
+        pool{ ios, 40 };
 
     for (int i = 0; i < 10'000; ++i)
         pool.exec(op, handler);

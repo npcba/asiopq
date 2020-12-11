@@ -57,11 +57,13 @@ public:
     {
     }
 
-    void operator()(const boost::system::error_code&)
+    void operator()(const boost::system::error_code& ec)
     {
-        // пусть PQconnectPoll сам обработает ошибку
-        //if (ec)
-        //    return Base::invokeHandler(ec);
+        // нашу ошибку сразу передаем хендлеру,
+        // а ошибку от сокета не обрабатываем,
+        // чтобы PQconnectPoll сам обработал сокетные проблемы и перевел m_conn в соответствующиее состояние
+        if (ec && ec.category() == pqcategory())
+            return Base::invokeHandler(ec);
 
         const auto pollResult = ::PQconnectPoll(Base::m_conn);
         switch (pollResult)
@@ -102,11 +104,13 @@ public:
     {
     }
 
-    void operator()(const boost::system::error_code&)
+    void operator()(const boost::system::error_code& ec)
     {
-        // пусть PQconsumeInput сам обработает ошибку
-        //if (ec)
-        //    return Base::invokeHandler(ec);
+        // нашу ошибку сразу передаем хендлеру,
+        // а ошибку от сокета не обрабатываем,
+        // чтобы PQconsumeInput сам обработал сокетные проблемы и перевел m_conn в соответствующиее состояние
+        if (ec && ec.category() == pqcategory())
+            return Base::invokeHandler(ec);
 
         switch (const bool JUMP_OVER_FIRST_CHECK = {})
         {

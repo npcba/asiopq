@@ -32,8 +32,16 @@ struct Composed
 template <typename Op>
 Composed<std::decay_t<Op>> compose(Op&& op)
 {
-    return {std::forward<Op>(op)};
+    return { std::forward<Op>(op) };
 }
+
+// чтобы избежать рекурсивного вкладывания
+template <typename Op>
+Composed<Op>&& compose(Composed<Op>&& op) { return std::move(op); }
+template <typename Op>
+const Composed<Op>& compose(const Composed<Op>& op) { return op; }
+template <typename Op>
+Composed<Op>& compose(Composed<Op>& op) { return op; }
 
 template<typename Pred, typename Op1, typename Op2>
 auto composeOperations(Op1&& op1, Op2&& op2)
@@ -41,9 +49,14 @@ auto composeOperations(Op1&& op1, Op2&& op2)
     return [op1{ std::forward<Op1>(op1) }, op2{ std::forward<Op2>(op2) }](Connection& conn, auto&& handler) mutable {
         op1(conn, [op2{ std::move(op2) }, &conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable {
             if (Pred{}(ec))
+            {
                 op2(conn, std::move(handler));
+            }
             else
-                handler(ec);
+            {
+                boost::asio::detail::binder1<decltype(handler), boost::system::error_code> binder{ std::move(handler), ec };
+                boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
+            }
         });
     };
 }
@@ -54,21 +67,21 @@ struct IfNotError{ bool operator()(const boost::system::error_code& ec) const { 
 
 #define BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(operator_, pred) \
 template<typename Op1, typename Op2> \
-auto operator operator_(Composed<Op1>&& op1, Op2&& op2) \
+auto operator operator_(Composed<Op1> op1, Op2&& op2) \
 { \
-    return compose(composeOperations<pred>(std::forward<Op1>(op1.op), std::forward<Op2>(op2))); \
+    return compose(composeOperations<pred>(std::move(op1.op), std::forward<Op2>(op2))); \
 } \
 \
 template<typename Op1, typename Op2> \
-auto operator operator_(Op1&& op1, Composed<Op2>&& op2) \
+auto operator operator_(Op1&& op1, Composed<Op2> op2) \
 { \
-    return compose(composeOperations<pred>(std::forward<Op1>(op1), std::forward<Op2>(op2.op))); \
+    return compose(composeOperations<pred>(std::forward<Op1>(op1), std::move(op2.op))); \
 } \
 \
 template<typename Op1, typename Op2> \
-auto operator operator_(Composed<Op1>&& op1, Composed<Op2>&& op2) \
+auto operator operator_(Composed<Op1> op1, Composed<Op2> op2) \
 { \
-    return compose(composeOperations<pred>(std::forward<Op1>(op1.op), std::forward<Op2>(op2.op))); \
+    return compose(composeOperations<pred>(std::move(op1.op), std::move(op2.op))); \
 } \
 /**/
 
@@ -78,7 +91,122 @@ BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(&, IfNotError)
 
 #undef BA_LIBPQ_DECLARE_COMPOSE_OPERATOR_
 
-template <
+template <typename Operation, typename CompletionHandler>
+class ConnectionPool
+{
+public:
+    ConnectionPool(const ConnectionPool&) = delete;
+    ConnectionPool& operator=(const ConnectionPool&) = delete;
+    ConnectionPool(ConnectionPool&&) = delete;
+    ConnectionPool& operator=(ConnectionPool&&) = delete;
+
+    ConnectionPool(boost::asio::io_service& ios, std::size_t size)
+        : m_strand{ ios }
+    {
+        if (0 == size)
+            throw std::invalid_argument("ConnectionPool size can't be zero");
+
+        while (size--)
+            m_ready.emplace_back(ios);
+    }
+
+    template <typename OtherOp, typename OtherHandler>
+    auto exec(OtherOp&& op, OtherHandler&& handler)
+    {
+        boost::asio::detail::async_result_init<OtherHandler, void(boost::system::error_code, const Connection*)>
+            init{ std::forward<OtherHandler>(handler) };
+
+        m_strand.dispatch([this, op{ std::forward<OtherOp>(op) }, handler{ std::move(init.handler) }]() mutable {
+            if (m_ready.empty())
+            {
+                m_opQueue.emplace(std::move(op), std::move(handler));
+                return;
+            }
+
+            auto conn = m_ready.begin();
+            setBusy(conn);
+
+            m_strand.get_io_service().post([op{ std::move(op) }, this, conn, handler{ std::move(handler) }]() mutable {
+                op(
+                      *conn
+                    , m_strand.wrap([this, conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable {
+                          handleExec(conn, std::move(handler), ec);
+                      })
+                    );
+            });
+        });
+
+        return init.result.get();
+    }
+
+private:
+    template <typename Handler>
+    void handleExec(
+          std::list<Connection>::iterator conn
+        , Handler&& handler
+        , const boost::system::error_code& ec
+        )
+    {
+        startOnePending(conn);
+        invokeHandler(std::forward<Handler>(handler), ec, &*conn);
+    }
+
+    template <typename Handler>
+    void invokeHandler(Handler&& handler, const boost::system::error_code& ec, const Connection* conn)
+    {
+        boost::asio::detail::binder2<Handler, boost::system::error_code, const Connection*>
+            binder{ std::forward<Handler>(handler), ec, conn };
+
+        boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
+    }
+
+    void setReady(std::list<Connection>::iterator conn)
+    {
+        m_ready.splice(m_ready.begin(), m_busy, conn);
+    }
+
+    void setBusy(std::list<Connection>::iterator conn)
+    {
+        m_busy.splice(m_busy.begin(), m_ready, conn);
+    }
+    
+    void startOnePending(std::list<Connection>::iterator conn)
+    {
+        if (m_opQueue.empty())
+        {
+            // объявляем conn свободным, т.к. очередь операций пуста
+            setReady(conn);
+            return;
+        }
+
+        auto& pair = m_opQueue.front();
+
+        m_strand.get_io_service().post([pair{ std::move(pair) }, this, conn]() mutable {
+            auto& op = pair.first;
+            auto& handler = pair.second;
+            op(*conn, m_strand.wrap([this, conn, handler{ std::move(handler) }](const boost::system::error_code& ec) mutable {
+                handleExec(conn, std::move(handler), ec);
+            }));
+        });
+
+        m_opQueue.pop();
+    }
+
+private:
+    using TrueCompletionHandler =
+        typename boost::asio::handler_type<
+              CompletionHandler
+            , void(boost::system::error_code, const Connection*)
+            >::type;
+
+private:
+    boost::asio::io_service::strand m_strand;
+    std::list<Connection> m_ready;
+    std::list<Connection> m_busy;
+    std::queue<std::pair<Operation, TrueCompletionHandler>> m_opQueue;
+};
+
+/*template <
       typename Operation
     , typename CompletionHandler
     , typename ConnectCmd = std::function<void (Connection&, std::function<void(boost::system::error_code)>)>
@@ -300,7 +428,7 @@ private:
     std::list<Connection> m_ready;
     std::list<Connection> m_busy;
     std::queue<std::pair<Operation, TrueCompletionHandler>> m_opQueue;
-};
+};*/
 
 } // namespace asiopq
 } // namespace ba
