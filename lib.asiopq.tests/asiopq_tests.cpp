@@ -3,17 +3,18 @@
 #define BOOST_COROUTINE_NO_DEPRECATION_WARNING
 #define BOOST_COROUTINES_NO_DEPRECATION_WARNING
 
+#include <asiopq/async_query.hpp>
+#include <asiopq/auto_prepared_query.hpp>
+#include <asiopq/text_params.hpp>
+#include <asiopq/reconnection_pool.hpp>
+#include <asiopq/dump_result.hpp>
+
 #include <thread>
 #include <functional>
 
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/use_future.hpp>
 #include <boost/test/included/unit_test.hpp>
-#include <asiopq/async_query.hpp>
-#include <asiopq/auto_prepared_query.hpp>
-#include <asiopq/text_params.hpp>
-#include <asiopq/connection_pool.hpp>
-#include <asiopq/dump_result.hpp>
 
 const char* const CONNECTION_STRING = "postgresql://ctest:ctest@localhost/ctest";
 
@@ -72,7 +73,7 @@ void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 
     const ba::asiopq::Connection* conn;
     for (int i = 0; i < 1'000; ++i)
-        conn = pool.exec(op, yield);
+        conn = pool(op, yield);
 }
 
 BOOST_AUTO_TEST_CASE(connectTest)
@@ -149,7 +150,7 @@ BOOST_AUTO_TEST_CASE(poolTest)
 
 
     for (int i = 0; i < 10'000; ++i)
-        pool->exec(queryOp, handler);
+        (*pool)(queryOp, handler);
 
     std::vector<std::thread> thrs;
     for (int i = 0; i < 4; ++i)
