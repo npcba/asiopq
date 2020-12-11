@@ -332,7 +332,7 @@ struct SFINAECheck_
 {
     static auto operationSignature()
     {
-        return std::declval<PolymorphicOperationType>();
+        return *((PolymorphicOperationType*)nullptr);
     }
 };
 
