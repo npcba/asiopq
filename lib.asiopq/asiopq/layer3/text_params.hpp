@@ -3,6 +3,7 @@
 #include <array>
 #include <algorithm>
 #include <type_traits>
+#include <memory>
 
 #include <libpq-fe.h>
 
@@ -15,7 +16,7 @@ template <std::size_t length>
 class TextParamsView
 {
 public:
-    // from variadic argumnts
+    // from variadic arguments
     template <typename... Char>
     TextParamsView(const Char*... params...) noexcept
         : m_params{ checkedChar(params)... }
@@ -85,6 +86,99 @@ TextParamsView<length> makeTextParamsView(const char* const(&params)[length])
 {
     return { params };
 }
+
+
+class TextParams
+{
+    struct IData
+    {
+        virtual int n() const noexcept = 0;
+        virtual const char* const* values() const noexcept = 0;
+    };
+
+    template <std::size_t length>
+    struct Data
+        : IData
+    {
+        Data(std::vector<std::string>&& values, const char* const(&pointers)[length])
+            : m_values{ std::move(values) }, m_view{ pointers }
+        {
+        }
+
+        int n() const noexcept override
+        {
+            return m_view.n();
+        }
+        virtual const char* const* values() const noexcept
+        {
+            return m_view.values();
+        }
+
+    private:
+        const std::vector<std::string> m_values;
+        const TextParamsView<length> m_view;
+    };
+
+public:
+    // from variadic arguments
+    template <typename... String>
+    TextParams(String&&... params...)
+    {
+        std::vector<std::string> values{ checkedString(std::forward<String>(params))... };
+        const char* pointers[sizeof...(params)];
+
+        std::transform(
+              values.begin()
+            , values.end()
+            , std::begin(pointers)
+            , [](const std::string& s) { return s.c_str(); }
+            );
+
+        m_data = std::make_shared<Data<sizeof...(params)>>(std::move(values), pointers);
+    }
+
+    int n() const noexcept
+    {
+        return m_data->n();
+    }
+
+    constexpr const Oid* types() const noexcept
+    {
+        return nullptr;
+    }
+
+    const char* const* values() const noexcept
+    {
+        return m_data->values();
+    }
+
+    constexpr const int* lengths() const noexcept
+    {
+        return nullptr;
+    }
+
+    constexpr const int* formats() const noexcept
+    {
+        return nullptr;
+    }
+
+private:
+    template <typename String>
+    static constexpr String&& checkedString(String&& param) noexcept
+    {
+        static_assert(std::is_convertible<String, std::string>::value, "Only std::string parameters are allowed");
+        return std::forward<String>(param);
+    }
+
+private:
+    std::shared_ptr<IData> m_data;
+};
+
+template<>
+struct ParamsTraits<TextParams>
+{
+    using IsOwner = std::true_type;
+};
 
 } // namespace ba
 } // namespace asiopq

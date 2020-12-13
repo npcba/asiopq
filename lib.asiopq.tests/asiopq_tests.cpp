@@ -4,6 +4,7 @@
 #define BOOST_COROUTINES_NO_DEPRECATION_WARNING
 
 #include <asiopq/async_query.hpp>
+#include <asiopq/async_query_params.hpp>
 #include <asiopq/auto_prepared_query.hpp>
 #include <asiopq/text_params.hpp>
 #include <asiopq/reconnection_pool.hpp>
@@ -129,7 +130,7 @@ BOOST_AUTO_TEST_CASE(poolTest)
             return;
         }
 
-        ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
+        ba::asiopq::asyncQueryParams(conn, "insert into asiopq (foo, bar) VALUES($1, $2)", ba::asiopq::TextParams{ "a", "b" }, true, std::forward<decltype(handler)>(handler));
     };
 
     std::atomic_size_t n{ 0 };
@@ -188,7 +189,7 @@ BOOST_AUTO_TEST_CASE(coroPoolTest)
     }
 }
 
-BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
+/*BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
 {
     boost::asio::io_service ios;
     ba::asiopq::Connection conn{ ios };
@@ -211,4 +212,4 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
-}
+}*/
