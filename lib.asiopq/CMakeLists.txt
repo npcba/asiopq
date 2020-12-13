@@ -1,4 +1,4 @@
-file (GLOB_RECURSE HEADERS
+file (GLOB HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/asiopq/*.hpp
 )
 

@@ -102,7 +102,7 @@ BA_ASIOPQ_DECLARE_COMPOSE_OPERATOR_(&, IfNotError)
 #undef BA_LIBPQ_DECLARE_COMPOSE_OPERATOR_
 
 
-using PolymorphicOperationType = std::function<void(Connection&, std::function<void(boost::system::error_code)>)>;
+using PolymorphicOperationType = std::function<void(Connection&, std::function<void(const boost::system::error_code&)>)>;
 
 
 template <typename Op, typename ConnectOp>

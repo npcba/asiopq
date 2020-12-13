@@ -142,7 +142,7 @@ public:
         return m_data->n();
     }
 
-    constexpr const Oid* types() const noexcept
+    const Oid* types() const noexcept
     {
         return nullptr;
     }
@@ -152,12 +152,12 @@ public:
         return m_data->values();
     }
 
-    constexpr const int* lengths() const noexcept
+    const int* lengths() const noexcept
     {
         return nullptr;
     }
 
-    constexpr const int* formats() const noexcept
+    const int* formats() const noexcept
     {
         return nullptr;
     }
