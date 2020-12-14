@@ -78,7 +78,8 @@ public:
         case PGRES_POLLING_WRITING:
             return detail::asyncWaitWriting(Base::m_socket, std::move(*this));
         default:
-            Base::m_socket.close(boost::system::error_code{});
+            boost::system::error_code ignoreEc;
+            Base::m_socket.close(ignoreEc);
             return Base::invokeHandler(make_error_code(PQError::CONN_POLL_FAILED));
         }
     }

@@ -71,7 +71,7 @@ dupTcpSocketFromHandle(
     if (sock.is_open())
     {
         assert("socket is open");
-        sock.close(ec);
+        sock.close(ec);  // игнорируем ошибку закрытия, если что, вывалится в assign
     }
 
     sock.assign(
