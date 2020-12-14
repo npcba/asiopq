@@ -170,13 +170,23 @@ private:
         int nativeSocket = -1;
 
         if (m_conn)
+        {
             if (-1 != (nativeSocket = ::PQsocket(m_conn.get())))
+            {
                 if (!(ec = detail::dupTcpSocketFromHandle(nativeSocket, *m_socket)))
+                {
                     ec = m_socket->non_blocking(true, ec);
+                }
+            }
             else
+            {
                 ec = make_error_code(PQError::CONN_INVALID_SOCKET);
+            }
+        }
         else
+        {
             ec = make_error_code(PQError::CONN_ALLOC_FAILED);
+        }
 
         using ConnOpType = detail::ConnectOp<decltype(init.handler)>;
 

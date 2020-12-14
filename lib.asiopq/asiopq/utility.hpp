@@ -162,7 +162,7 @@ inline auto makeConnectOperation(std::map<std::string, std::string>&& params, bo
     return [capture{ std::move(capture) }](Connection& conn, auto&& handler)
     {
         conn.asyncConnectParams(
-                capture->keywordsView.data()
+              capture->keywordsView.data()
             , capture->valuesView.data()
             , int(capture->expandDbname)
             , std::forward<decltype(handler)>(handler)

@@ -66,6 +66,14 @@ dupTcpSocketFromHandle(
 #endif
 
     boost::system::error_code ec;
+
+    // должны были передать закрытый сокет, но на всякий случай проверим и закроем
+    if (sock.is_open())
+    {
+        assert("socket is open");
+        sock.close(ec);
+    }
+
     sock.assign(
           AF_INET6 == family ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4()
         , dupHandle
