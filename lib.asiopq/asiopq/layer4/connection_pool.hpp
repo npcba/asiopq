@@ -68,13 +68,28 @@ private:
         , const boost::system::error_code& ec
         )
     {
-        startOnePending(conn);
+        const bool opQueueEmpty = m_opQueue.empty();
+        if (opQueueEmpty)
+            setReady(conn); // объявляем conn свободным, т.к. очередь операций пуста
 
         boost::asio::detail::binder2<Handler, boost::system::error_code, const Connection*>
             binder{ std::forward<Handler>(handler), ec, &*conn };
 
         // TODO: вызвать handler вне strand, пользователь может подать тяжелый handler, пул будет заблокирован до его завершения
         boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
+
+        // Если пул создали на стеке корутины, и этот invoke исполнил конец корутины, то пул удалился деструктором,
+        // и после invoke мы получим висячий this, поэтому флаг пустой очереди мы запомнили на стеке до invoke.
+        //
+        // Случай, когда в очереди что-то осталось, но пул удалили не рассматриваем, это грохнется еще раньше,
+        // это UB по дизайну пула (и коннекшнов) в данной версии библиотеки
+        //
+        // Правильная практика поддержки корутин -это, когда после вызова handler'а к this больше не обращаются,
+        // но с пулом так не получается
+        if (opQueueEmpty)
+            return;
+
+        startOnePending(conn); // в очереди еще есть, запускаем следующий
     }
 
     void setReady(std::list<Connection>::iterator conn)
@@ -89,13 +104,6 @@ private:
     
     void startOnePending(std::list<Connection>::iterator conn)
     {
-        if (m_opQueue.empty())
-        {
-            // объявляем conn свободным, т.к. очередь операций пуста
-            setReady(conn);
-            return;
-        }
-
         auto& pair = m_opQueue.front();
 
         m_strand.get_io_service().post([pair{ std::move(pair) }, this, conn]() mutable {
