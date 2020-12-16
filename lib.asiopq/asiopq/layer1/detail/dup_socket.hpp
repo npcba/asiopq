@@ -74,13 +74,11 @@ dupTcpSocketFromHandle(
         sock.close(ec);  // игнорируем ошибку закрытия, если что, вывалится в assign
     }
 
-    sock.assign(
+    return sock.assign(
           AF_INET6 == family ? boost::asio::ip::tcp::v6() : boost::asio::ip::tcp::v4()
         , dupHandle
         , ec
         );
-
-    return ec;
 }
 
 } // namespace detail
