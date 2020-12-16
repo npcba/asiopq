@@ -53,7 +53,7 @@ void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
     auto connectOp = [](ba::asiopq::Connection& conn, auto&& handler)
     {
-        conn.asyncConnect("postgresql://ctest:ctest@localhost/ctest", std::forward<decltype(handler)>(handler));
+        conn.asyncConnect(CONNECTION_STRING, std::forward<decltype(handler)>(handler));
     };
     
     auto queryOp = ba::asiopq::compose([](ba::asiopq::Connection& conn, auto&& handler)
@@ -144,8 +144,8 @@ BOOST_AUTO_TEST_CASE(poolTest)
         }
     };
 
-    const auto pool = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, "postgresql://ctest:ctest@localhost/ctest");
-    const auto pool2 = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, ba::asiopq::makeConnectOperation("postgresql://ctest:ctest@localhost/ctest"));
+    const auto pool = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, CONNECTION_STRING);
+    const auto pool2 = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, ba::asiopq::makeConnectOperation(CONNECTION_STRING));
     const auto pool3 = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, { {} }, false);
 
 
