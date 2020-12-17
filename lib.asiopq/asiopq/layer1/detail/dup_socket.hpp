@@ -70,7 +70,7 @@ dupTcpSocketFromHandle(
     // должны были передать закрытый сокет, но на всякий случай проверим и закроем
     if (sock.is_open())
     {
-        assert("socket is open");
+        assert(!"socket is open");
         sock.close(ec);  // игнорируем ошибку закрытия, если что, вывалится в assign
     }
 
