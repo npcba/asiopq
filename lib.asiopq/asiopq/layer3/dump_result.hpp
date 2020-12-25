@@ -23,7 +23,7 @@ public:
         m_opt.header = 1;
         m_opt.align = 1;
         m_opt.expanded = 1;
-        m_opt.fieldSep = const_cast<char*>()", ";
+        m_opt.fieldSep = const_cast<char*>(", ");
     }
 
     boost::system::error_code operator()(const ::PGresult* res) const noexcept
