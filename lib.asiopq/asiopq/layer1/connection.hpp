@@ -32,6 +32,7 @@ namespace asiopq {
 
 namespace detail {
 
+// TODO: этот шаблон я стащил из boost 1.62, в новом boost его нет. Нужно разобрться, что вместо него в новом пользуют.
 template <typename Handler, typename Signature>
 struct async_result_init
 {
