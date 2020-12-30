@@ -6,6 +6,7 @@
 #include <queue>
 
 #include <boost/asio/strand.hpp>
+#include <boost/asio/version.hpp>
 
 
 namespace ba {
@@ -105,7 +106,7 @@ private:
     {
         m_busy.splice(m_busy.begin(), m_ready, conn);
     }
-    
+
     void startOnePending(std::list<Connection>::iterator conn)
     {
         auto& pair = m_opQueue.front();
