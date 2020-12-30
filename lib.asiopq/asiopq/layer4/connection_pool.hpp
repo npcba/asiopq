@@ -73,7 +73,11 @@ private:
             setReady(conn); // объявляем conn свободным, т.к. очередь операций пуста
 
         boost::asio::detail::binder2<Handler, boost::system::error_code, const Connection*>
+#if BOOST_ASIO_VERSION >= 101200
+            binder{ 0, std::forward<Handler>(handler), ec, &*conn };
+#else
             binder{ std::forward<Handler>(handler), ec, &*conn };
+#endif
 
         // TODO: вызвать handler вне strand, пользователь может подать тяжелый handler, пул будет заблокирован до его завершения
         boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);

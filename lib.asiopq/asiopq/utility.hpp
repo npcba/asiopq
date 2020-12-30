@@ -59,7 +59,11 @@ auto compose(Op1&& op1, Op2&& op2)
             }
             else
             {
+#if BOOST_ASIO_VERSION >= 101200
+                boost::asio::detail::binder1<decltype(handler), boost::system::error_code> binder{0, std::move(handler), ec };
+#else
                 boost::asio::detail::binder1<decltype(handler), boost::system::error_code> binder{ std::move(handler), ec };
+#endif
                 boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
             }
         });

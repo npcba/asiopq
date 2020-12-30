@@ -54,7 +54,11 @@ public:
         // потому что init.result.get() будет вызван в текущей функции
         auto hiddenHandler = [handler{ std::move(init.handler) }](const boost::system::error_code& ec) mutable {
             boost::asio::detail::binder1<decltype(handler), boost::system::error_code>
+#if BOOST_ASIO_VERSION >= 101200
+                binder{0, std::move(handler), ec };
+#else
                 binder{ std::move(handler), ec };
+#endif
             boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
         };
 

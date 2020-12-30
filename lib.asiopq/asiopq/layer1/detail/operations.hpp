@@ -27,7 +27,11 @@ public:
 protected:
     void invokeHandler(const boost::system::error_code& ec)
     {
+#if BOOST_ASIO_VERSION >= 101200
+        boost::asio::detail::binder1<CompletionHandler, boost::system::error_code> binder{0, std::move(m_handler), ec };
+#else
         boost::asio::detail::binder1<CompletionHandler, boost::system::error_code> binder{ std::move(m_handler), ec };
+#endif
         boost_asio_handler_invoke_helpers::invoke(binder, binder.handler_);
     }
 
