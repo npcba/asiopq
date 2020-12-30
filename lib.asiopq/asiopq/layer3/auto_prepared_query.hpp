@@ -46,7 +46,7 @@ public:
                 , std::forward<ResultCollector>(coll)
                 );
 
-        boost::asio::detail::async_result_init<CompletionToken, void(boost::system::error_code)>
+        detail::async_result_init<CompletionToken, void(boost::system::error_code)>
             init{ std::forward<CompletionToken>(completion) };
 
         // нужно скрыть реальный тип init.handler,

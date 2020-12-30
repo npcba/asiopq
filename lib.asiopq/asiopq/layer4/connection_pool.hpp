@@ -34,7 +34,7 @@ public:
     template <typename OtherOp, typename OtherHandler>
     auto operator()(OtherOp&& op, OtherHandler&& handler)
     {
-        boost::asio::detail::async_result_init<OtherHandler, void(boost::system::error_code, const Connection*)>
+        detail::async_result_init<OtherHandler, void(boost::system::error_code, const Connection*)>
             init{ std::forward<OtherHandler>(handler) };
 
         m_strand.dispatch([this, op{ std::forward<OtherOp>(op) }, trueHandler{ std::move(init.handler) }]() mutable {

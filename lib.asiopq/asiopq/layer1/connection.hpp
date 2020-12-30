@@ -30,6 +30,23 @@ void ba_asiopq_handlerCheck(Handler&& handler)
 namespace ba {
 namespace asiopq {
 
+namespace detail {
+
+template <typename Handler, typename Signature>
+struct async_result_init
+{
+  explicit async_result_init(BOOST_ASIO_MOVE_ARG(Handler) orig_handler)
+    : handler(BOOST_ASIO_MOVE_CAST(Handler)(orig_handler)),
+      result(handler)
+  {
+  }
+
+  typename boost::asio::handler_type<Handler, Signature>::type handler;
+  boost::asio::async_result<typename boost::asio::handler_type<Handler, Signature>::type> result;
+};
+
+} // namespace detail
+
 class Connection
 {
 public:
@@ -113,7 +130,7 @@ public:
         // );
         boost::asio::ba_asiopq_handlerCheck(handler);
 
-        boost::asio::detail::async_result_init<ExecHandler, void(boost::system::error_code)>
+        detail::async_result_init<ExecHandler, void(boost::system::error_code)>
             init{ std::forward<ExecHandler>(handler) };
 
         boost::system::error_code ec = cmd();
@@ -163,7 +180,7 @@ private:
     template <typename ConnectHandler>
     auto startConnectPoll(ConnectHandler&& handler)
     {
-        boost::asio::detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
+        detail::async_result_init<ConnectHandler, void(boost::system::error_code)>
             init{ std::forward<ConnectHandler>(handler) };
 
         boost::system::error_code ec;
