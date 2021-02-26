@@ -16,7 +16,7 @@
 #include <boost/asio/use_future.hpp>
 #include <boost/test/included/unit_test.hpp>
 
-const char* const CONNECTION_STRING = "postgresql://ctest:ctest@localhost/ctest";
+const char* const CONNECTION_STRING = "postgresql://ctest:ctest@postgres/ctest";
 
 void connectCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
