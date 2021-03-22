@@ -78,7 +78,7 @@ public:
         if (!m_timer)
         {
             m_timer = std::make_shared<boost::asio::deadline_timer>(Base::m_socket.get_io_service(), boost::posix_time::seconds{ 10 });
-            m_timer->async_wait([&sock{ m_socket }](const boost::system::error_code& ec) {
+            m_timer->async_wait([&sock{ Base::m_socket }](const boost::system::error_code& ec) {
                 if (boost::asio::error::operation_aborted != ec)
                     sock.close();
             });
