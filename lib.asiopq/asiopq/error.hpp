@@ -11,6 +11,7 @@ enum class PQError : int
 {
     OK = 0,
     CONN_ALLOC_FAILED,
+    CONN_FAILED,
     CONN_INVALID_SOCKET,
     CONN_POLL_FAILED,
     CONSUME_INPUT_FAILED,
@@ -39,6 +40,8 @@ public:
             return "OK";
         case PQError::CONN_ALLOC_FAILED:
             return "PostgreSQL connection allocation failed";
+        case PQError::CONN_FAILED:
+            return "PostgreSQL connection failed";
         case PQError::CONN_INVALID_SOCKET:
             return "PostgreSQL invalid socket handle";
         case PQError::CONN_POLL_FAILED:

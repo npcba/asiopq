@@ -189,7 +189,11 @@ private:
 
         if (m_conn)
         {
-            if (-1 != (nativeSocket = ::PQsocket(m_conn.get())))
+            if (::PQstatus(m_conn.get()) == CONNECTION_BAD)
+            {
+                ec = make_error_code(PQError::CONN_FAILED);
+            }
+            else if (-1 != (nativeSocket = ::PQsocket(m_conn.get())))
             {
                 if (!(ec = detail::dupTcpSocketFromHandle(nativeSocket, *m_socket)))
                 {

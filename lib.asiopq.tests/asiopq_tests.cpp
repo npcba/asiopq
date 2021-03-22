@@ -14,14 +14,41 @@
 
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/use_future.hpp>
+#include <boost/lexical_cast.hpp> 
 #include <boost/test/included/unit_test.hpp>
 
-const char* const CONNECTION_STRING = "postgresql://ctest:ctest@postgres/ctest";
+const char* const CONNECTION_STRING = "postgresql://ctest:ctest@postgres/ctest?connect_timeout=100";
 
 void connectCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
     ba::asiopq::Connection conn{ ios };
+
     BOOST_CHECK_NO_THROW(conn.asyncConnect(CONNECTION_STRING, yield));
+
+    boost::posix_time::time_duration::sec_type connTimeout = 0;
+
+    ::PQconninfoOption* const opts = ::PQconninfo(conn.get());
+    for (const auto* curOpt = opts; curOpt->keyword; ++curOpt)
+    {
+        if (std::strcmp(curOpt->keyword, "connect_timeout") == 0)
+        {
+            if (curOpt->val)
+            {
+                try
+                {
+                    connTimeout = boost::lexical_cast<decltype(connTimeout)>(curOpt->val);
+                }
+                catch (const std::exception& ex)
+                {
+                }
+            }
+
+            break;
+        }
+    }
+
+    ::PQconninfoFree(opts);
+
     BOOST_CHECK(conn.close() == boost::system::error_code{});
 }
 

@@ -1,9 +1,13 @@
 #pragma once
 
+#include <memory>
+
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/detail/bind_handler.hpp>
 #include <boost/asio/detail/handler_invoke_helpers.hpp>
 #include <boost/asio/version.hpp>
+#include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/strand.hpp>
 
 #include <libpq-fe.h>
 
@@ -59,6 +63,7 @@ public:
 
     ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ConnectHandler&& handler)
         : Base{ conn, s, std::forward<ConnectHandler>(handler) }
+        , m_strand{ s.get_io_service() }
     {
     }
 
@@ -70,24 +75,41 @@ public:
         if (ec && ec.category() == pqcategory())
             return Base::invokeHandler(ec);
 
+        if (!m_timer)
+        {
+            m_timer = std::make_shared<boost::asio::deadline_timer>(Base::m_socket.get_io_service(), boost::posix_time::seconds{ 10 });
+            m_timer->async_wait([&sock{ m_socket }](const boost::system::error_code& ec) {
+                if (boost::asio::error::operation_aborted != ec)
+                    sock.close();
+            });
+        }
+
         const auto pollResult = ::PQconnectPoll(Base::m_conn);
         switch (pollResult)
         {
         case PGRES_POLLING_OK:
-        {
             assert(::PQstatus(Base::m_conn) == ::CONNECTION_OK);
             return Base::invokeHandler(boost::system::error_code{});
-        }
         case PGRES_POLLING_READING:
-            return detail::asyncWaitReading(Base::m_socket, std::move(*this));
+        {
+            auto strandBackup = m_strand; // копируем m_strand т.к. потом себя перемещаем std::move(*this)
+            return detail::asyncWaitReading(Base::m_socket, strandBackup.wrap(std::move(*this)));
+        }
         case PGRES_POLLING_WRITING:
-            return detail::asyncWaitWriting(Base::m_socket, std::move(*this));
+        {
+            auto strandBackup = m_strand; // копируем m_strand т.к. потом себя перемещаем std::move(*this)
+            return detail::asyncWaitWriting(Base::m_socket, strandBackup.wrap(std::move(*this)));
+        }
         default:
             boost::system::error_code ignoreEc;
             Base::m_socket.close(ignoreEc);
             return Base::invokeHandler(make_error_code(PQError::CONN_POLL_FAILED));
         }
     }
+
+private:
+    boost::asio::io_service::strand m_strand;
+    std::shared_ptr<boost::asio::deadline_timer> m_timer; // старый boost требует копирования от handler
 };
 
 template <typename ExecHandler, typename ResultCollector>
