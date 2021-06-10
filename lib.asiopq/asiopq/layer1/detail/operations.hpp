@@ -61,9 +61,10 @@ public:
     ConnectOp(const ConnectOp&) = default;
     ConnectOp& operator=(const ConnectOp&) = default;
 
-    ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, ConnectHandler&& handler)
+    ConnectOp(PGconn* conn, boost::asio::ip::tcp::socket& s, boost::posix_time::time_duration::sec_type timeout, ConnectHandler&& handler)
         : Base{ conn, s, std::forward<ConnectHandler>(handler) }
         , m_strand{ s.get_io_service() }
+        , m_timeout{ timeout }
     {
     }
 
@@ -75,16 +76,21 @@ public:
         if (ec && ec.category() == pqcategory())
             return Base::invokeHandler(ec);
 
-        if (!m_timer)
+        const auto pollResult = ::PQconnectPoll(Base::m_conn);
+
+        // Если нужно ждать, и ждать еще не начинали, формируем таймер
+        if (m_timeout &&
+            !m_timer &&
+            (PGRES_POLLING_READING == pollResult || PGRES_POLLING_WRITING == pollResult))
         {
-            m_timer = std::make_shared<boost::asio::deadline_timer>(Base::m_socket.get_io_service(), boost::posix_time::seconds{ 10 });
-            m_timer->async_wait([&sock{ Base::m_socket }](const boost::system::error_code& ec) {
-                if (boost::asio::error::operation_aborted != ec)
-                    sock.close();
-            });
+            m_timer = std::make_shared<boost::asio::deadline_timer>(Base::m_socket.get_io_service(), boost::posix_time::seconds{ m_timeout });
+            m_timer->async_wait(m_strand.wrap(
+                [&sock{ Base::m_socket }](const boost::system::error_code& ec) {
+                    if (boost::asio::error::operation_aborted != ec) // если это не отмена таймера, то закрываем сокет по таймауту
+                        sock.close();
+            }));
         }
 
-        const auto pollResult = ::PQconnectPoll(Base::m_conn);
         switch (pollResult)
         {
         case PGRES_POLLING_OK:
@@ -109,6 +115,7 @@ public:
 
 private:
     boost::asio::io_service::strand m_strand;
+    const boost::posix_time::time_duration::sec_type m_timeout;
     std::shared_ptr<boost::asio::deadline_timer> m_timer; // старый boost требует копирования от handler
 };
 

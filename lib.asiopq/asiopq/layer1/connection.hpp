@@ -5,6 +5,7 @@
 #include <libpq-fe.h>
 
 #include <boost/asio/async_result.hpp>
+#include <boost/lexical_cast.hpp>
 
 #include "detail/dup_socket.hpp"
 #include "detail/operations.hpp"
@@ -189,7 +190,7 @@ private:
 
         if (m_conn)
         {
-            if (::PQstatus(m_conn.get()) == CONNECTION_BAD)
+            if (::PQstatus(m_conn.get()) == ::CONNECTION_BAD)
             {
                 ec = make_error_code(PQError::CONN_FAILED);
             }
@@ -210,6 +211,10 @@ private:
             ec = make_error_code(PQError::CONN_ALLOC_FAILED);
         }
 
+        boost::posix_time::time_duration::sec_type timeout = 0;
+        if (!ec)
+            timeout = parseConnectTimeout(ec);
+
         using ConnOpType = detail::ConnectOp<decltype(init.handler)>;
 
         // здесь разделено на 2 разных вызова: в случае ошибки ec уходит в капчу,
@@ -217,16 +222,51 @@ private:
         // но ценой инстанцирования 2-х разных шаблонов
         if (ec)
             m_socket->get_io_service().post(
-                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, std::move(init.handler) } }, ec] () mutable {
+                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, timeout, std::move(init.handler) } }, ec] () mutable {
                 boundHandler(ec);
             });
         else
             m_socket->get_io_service().post(
-                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, std::move(init.handler) } }]() mutable {
+                [boundHandler{ ConnOpType{ m_conn.get(), *m_socket, timeout, std::move(init.handler) } }]() mutable {
                 boundHandler(boost::system::error_code{});
             });
 
         return init.result.get();
+    }
+
+    boost::posix_time::time_duration::sec_type parseConnectTimeout(boost::system::error_code& ec)
+    {
+        ec = {};
+        boost::posix_time::time_duration::sec_type connTimeout = 0;
+
+        ::PQconninfoOption* const opts = ::PQconninfo(m_conn.get());
+        for (const auto* curOpt = opts; curOpt->keyword; ++curOpt)
+        {
+            if (std::strcmp(curOpt->keyword, "connect_timeout") == 0)
+            {
+                if (curOpt->val)
+                {
+                    try
+                    {
+                        connTimeout = boost::lexical_cast<decltype(connTimeout)>(curOpt->val);
+                        if (connTimeout <= 0)
+                            connTimeout = 0; // также действует libpq, <=0, или отсутствующий параметр - значит без таймаута
+                        else if(connTimeout < 2)
+                            connTimeout = 2; // также действует libpq, меньше 2-х нельзя
+                    }
+                    catch (const std::exception&)
+                    {
+                        assert(!u8"Сюда не должны приходить. Если libpq распарсил число, то и мы должны");
+                        ec = make_error_code(PQError::CONN_FAILED); // Но на всякий случай обрабатываем, мало ли, как libpq парсит
+                    }
+                }
+
+                break;
+            }
+        }
+
+        ::PQconninfoFree(opts);
+        return connTimeout;
     }
 
 private:

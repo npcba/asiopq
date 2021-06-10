@@ -14,41 +14,15 @@
 
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/use_future.hpp>
-#include <boost/lexical_cast.hpp> 
 #include <boost/test/included/unit_test.hpp>
 
-const char* const CONNECTION_STRING = "postgresql://ctest:ctest@postgres/ctest?connect_timeout=100";
+const char* const CONNECTION_STRING = "postgresql://ctest:ctest@localhost/ctest";
 
 void connectCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
 {
     ba::asiopq::Connection conn{ ios };
 
     BOOST_CHECK_NO_THROW(conn.asyncConnect(CONNECTION_STRING, yield));
-
-    boost::posix_time::time_duration::sec_type connTimeout = 0;
-
-    ::PQconninfoOption* const opts = ::PQconninfo(conn.get());
-    for (const auto* curOpt = opts; curOpt->keyword; ++curOpt)
-    {
-        if (std::strcmp(curOpt->keyword, "connect_timeout") == 0)
-        {
-            if (curOpt->val)
-            {
-                try
-                {
-                    connTimeout = boost::lexical_cast<decltype(connTimeout)>(curOpt->val);
-                }
-                catch (const std::exception& ex)
-                {
-                }
-            }
-
-            break;
-        }
-    }
-
-    ::PQconninfoFree(opts);
-
     BOOST_CHECK(conn.close() == boost::system::error_code{});
 }
 
@@ -239,4 +213,51 @@ BOOST_AUTO_TEST_CASE(deleteUseFutureTest)
     dropped = ba::asiopq::asyncQuery(conn, "DROP TABLE asiopq", boost::asio::use_future);
     ios.run();
     BOOST_CHECK_THROW(dropped.get(), boost::system::system_error);
+}
+
+void connectToExistPortCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
+{
+    std::string connString = CONNECTION_STRING;
+    ba::asiopq::Connection conn{ ios };
+
+    BOOST_CHECK_NO_THROW(conn.asyncConnect((connString + "?connect_timeout=0").c_str(), yield));
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+
+    BOOST_CHECK_NO_THROW(conn.asyncConnect((connString + "?connect_timeout=-1").c_str(), yield));
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+
+    BOOST_CHECK_NO_THROW(conn.asyncConnect((connString + "?connect_timeout=1").c_str(), yield));
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+
+    BOOST_CHECK_NO_THROW(conn.asyncConnect((connString + "?connect_timeout=2").c_str(), yield));
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+
+    BOOST_CHECK_NO_THROW(conn.asyncConnect((connString + "?connect_timeout=10").c_str(), yield));
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+}
+
+void connectToNotExistPortCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
+{
+    std::string connString = "postgresql://ctest:ctest@localhost:12345/ctest"; // несуществующий порт
+    ba::asiopq::Connection conn{ ios };
+
+    BOOST_CHECK_THROW(conn.asyncConnect((connString + "?connect_timeout=2").c_str(), yield), boost::system::system_error);
+    BOOST_CHECK(conn.close() == boost::system::error_code{});
+}
+
+BOOST_AUTO_TEST_CASE(connectTimeoutTest)
+{
+    boost::asio::io_service ios;
+    boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
+        connectToExistPortCoro(ios, yield);
+        });
+
+    ios.run();
+    ios.reset();
+
+    boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
+        connectToNotExistPortCoro(ios, yield);
+        });
+
+    ios.run();
 }
