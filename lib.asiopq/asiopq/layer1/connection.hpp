@@ -234,6 +234,9 @@ private:
         return init.result.get();
     }
 
+    /// Выделяет из параметров подключения connect_timeout.
+    /// Поведение соответствует обработке этого параметра самой libpq, когда она работает в синхронном режиме.
+    /// В асинхронном режиме обработка connect_timeout возложена на пользователя libpq, чем мы тут и занимаемся.
     boost::posix_time::time_duration::sec_type parseConnectTimeout(boost::system::error_code& ec)
     {
         ec = {};
@@ -242,27 +245,31 @@ private:
         ::PQconninfoOption* const opts = ::PQconninfo(m_conn.get());
         for (const auto* curOpt = opts; curOpt->keyword; ++curOpt)
         {
-            if (std::strcmp(curOpt->keyword, "connect_timeout") == 0)
-            {
-                if (curOpt->val)
-                {
-                    try
-                    {
-                        connTimeout = boost::lexical_cast<decltype(connTimeout)>(curOpt->val);
-                        if (connTimeout <= 0)
-                            connTimeout = 0; // также действует libpq, <=0, или отсутствующий параметр - значит без таймаута
-                        else if(connTimeout < 2)
-                            connTimeout = 2; // также действует libpq, меньше 2-х нельзя
-                    }
-                    catch (const std::exception&)
-                    {
-                        assert(!u8"Сюда не должны приходить. Если libpq распарсил число, то и мы должны");
-                        ec = make_error_code(PQError::CONN_FAILED); // Но на всякий случай обрабатываем, мало ли, как libpq парсит
-                    }
-                }
+            if (std::strcmp(curOpt->keyword, "connect_timeout") != 0)
+                continue;
 
+            // мы тут, потому что это connect_timeout
+
+            if (nullptr == curOpt->val) // нет значения, значит отставляем 0
                 break;
+
+            // есть значение, парсим его как целочисленное
+            
+            try
+            {
+                connTimeout = boost::lexical_cast<decltype(connTimeout)>(curOpt->val);
+                if (connTimeout < 0)
+                    connTimeout = 0; // также действует libpq, <=0, или отсутствующий параметр - значит без таймаута
+                else if(connTimeout < 2)
+                    connTimeout = 2; // также действует libpq, меньше 2-х нельзя
             }
+            catch (const std::exception&)
+            {
+                assert(!u8"Сюда не должны приходить. Если libpq распарсил число, то и мы должны");
+                ec = make_error_code(PQError::CONN_FAILED); // Но на всякий случай обрабатываем, мало ли, как libpq парсит
+            }
+
+            break; // нашли значение, дальше не идем
         }
 
         ::PQconninfoFree(opts);

@@ -79,7 +79,7 @@ public:
         const auto pollResult = ::PQconnectPoll(Base::m_conn);
 
         // Если нужно ждать, и ждать еще не начинали, формируем таймер
-        if (m_timeout &&
+        if (m_timeout != 0 &&
             !m_timer &&
             (PGRES_POLLING_READING == pollResult || PGRES_POLLING_WRITING == pollResult))
         {
