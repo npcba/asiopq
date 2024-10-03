@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <memory>
 
+#include <boost/optional.hpp>
+
 #include <libpq-fe.h>
 
 #include "../layer2/params.hpp"
@@ -18,7 +20,7 @@ class TextParamsView
 public:
     // from variadic arguments
     template <typename... Char>
-    TextParamsView(const Char*... params...) noexcept
+    TextParamsView(const Char*... params) noexcept
         : m_params{ checkedChar(params)... }
     {
         static_assert(sizeof...(params) == length, "Constructor argument count should be equal to 'length' template parameter");
@@ -75,7 +77,7 @@ struct ParamsTraits<TextParamsView<length>>
 
 // from variadic argumnts
 template <typename... Char>
-TextParamsView<sizeof...(Char)> makeTextParamsView(const Char*... params...)
+TextParamsView<sizeof...(Char)> makeTextParamsView(const Char*... params)
 {
     return { params... };
 }
@@ -92,46 +94,48 @@ class TextParams
 {
     struct IData
     {
+        virtual ~IData() = default;
         virtual int n() const noexcept = 0;
         virtual const char* const* values() const noexcept = 0;
     };
 
     template <std::size_t length>
-    struct Data
-        : IData
+    struct Data final : IData
     {
-        Data(std::vector<std::string>&& values, const char* const(&pointers)[length])
+        Data(std::vector<boost::optional<std::string>>&& values, const char* const(&pointers)[length])
             : m_values{ std::move(values) }, m_view{ pointers }
         {
         }
+
+        ~Data() override = default;
 
         int n() const noexcept override
         {
             return m_view.n();
         }
-        virtual const char* const* values() const noexcept
+        virtual const char* const* values() const noexcept override
         {
             return m_view.values();
         }
 
     private:
-        const std::vector<std::string> m_values;
+        const std::vector<boost::optional<std::string>> m_values;
         const TextParamsView<length> m_view;
     };
 
 public:
     // from variadic arguments
     template <typename... String>
-    TextParams(String&&... params...)
+    TextParams(String&&... params)
     {
-        std::vector<std::string> values{ checkedString(std::forward<String>(params))... };
+        std::vector<boost::optional<std::string>> values{ checkedString(std::forward<String>(params))... };
         const char* pointers[sizeof...(params)];
 
         std::transform(
               values.begin()
             , values.end()
             , std::begin(pointers)
-            , [](const std::string& s) { return s.c_str(); }
+            , [](const boost::optional<std::string>& s) { return (s ? s->c_str() : nullptr); }
             );
 
         m_data = std::make_shared<Data<sizeof...(params)>>(std::move(values), pointers);
@@ -164,10 +168,23 @@ public:
 
 private:
     template <typename String>
-    static constexpr String&& checkedString(String&& param) noexcept
+    static boost::optional<std::string> checkedString(String&& param)
     {
-        static_assert(std::is_convertible<String, std::string>::value, "Only std::string parameters are allowed");
-        return std::forward<String>(param);
+        static_assert(std::is_convertible<String, std::string>::value, "Only std::string-convertible parameters are allowed");
+        return boost::optional<std::string>{ std::forward<String>(param) };
+    }
+
+    static boost::optional<std::string> checkedString(boost::optional<std::string> param)
+    {
+        return param;
+    }
+
+    static boost::optional<std::string> checkedString(const char* param)
+    {
+        if (nullptr == param)
+            return {}; // значение отсутствует, будет подставлено nullptr в TextParams
+
+        return boost::optional<std::string>{ param };
     }
 
 private:

@@ -76,23 +76,13 @@ private:
 // make-функции позволяют вывести параметр шаблона ConnectOp
 // пул не умеет ни копироваться, ни перемещаться, поэтому через unique_ptr
 
-namespace detail {
-    struct SFINAECheck_
-    {
-        static auto operationSignature()
-        {
-            return *((PolymorphicOperationType*)nullptr);
-        }
-    };
-} // namespace detail
-
-// тут нужен SFINAE, т.к. компилятор 3-й аргумент char* направляет в шаблонный  ConnectOp&&, вместо std::string версию,
-// поэтому проверяем connectOp на верную callable-сигнатуру через попытку присвоить его в объект типа PolymorphicOperationType
+// Компилятор 3-й аргумент char* направляет в шаблонный ConnectOp&&, вместо std::string версию,
+// поэтому проверяем connectOp на верную callable-сигнатуру через попытку конвертировать его в объект типа PolymorphicOperationType
 template <
       typename Operation
     , typename CompletionHandler
     , typename ConnectOp
-    , typename = decltype(detail::SFINAECheck_::operationSignature() = std::declval<ConnectOp>())
+    , std::enable_if_t<std::is_convertible<ConnectOp, PolymorphicOperationType>::value, bool> = true
     >
 auto makeReconnectionPool(boost::asio::io_service& ios, std::size_t size, ConnectOp&& connectOp)
 {

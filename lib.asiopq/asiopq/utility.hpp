@@ -174,5 +174,17 @@ inline auto makeConnectOperation(std::map<std::string, std::string>&& params, bo
     };
 }
 
+class ConnectionKeywords final
+{
+public:
+    static constexpr const char* host() noexcept { return "host"; }
+};
+
+inline std::unique_ptr<PQconninfoOption, decltype(&::PQconninfoFree)> parseConnectionInfo(const char* const conninfo)
+{
+    // NOTE: возможно обработку ошибок в каком-то виде надо будет сделать потом
+    return { PQconninfoParse(conninfo, nullptr), PQconninfoFree };
+}
+
 } // namespace asiopq
 } // namespace ba

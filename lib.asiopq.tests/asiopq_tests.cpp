@@ -68,21 +68,28 @@ void poolCoro(boost::asio::io_service& ios, boost::asio::yield_context yield)
             ba::asiopq::asyncQuery(conn, "insert into asiopq (foo, bar) VALUES('a', 'b')", std::forward<decltype(handler)>(handler));
     });
 
-    auto op = (queryOp | connectOp & queryOp);
+    auto op = (queryOp | (connectOp & queryOp));
 
     ba::asiopq::ConnectionPool<decltype(op), decltype(yield)> pool{ ios, 2 };
 
     const ba::asiopq::Connection* conn;
     for (int i = 0; i < 1'000; ++i)
         conn = pool(op, yield);
+    std::ignore = conn;
 }
 
 BOOST_AUTO_TEST_CASE(connectTest)
 {
     boost::asio::io_service ios;
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
-        connectCoro(ios, yield);
-        });
+        try {
+            connectCoro(ios, yield);
+        }
+        catch (const std::exception& err) {
+            BOOST_ERROR(err.what());
+        }
+
+    });
 
     ios.run();
 }
@@ -103,7 +110,12 @@ BOOST_AUTO_TEST_CASE(insertTest)
 
     for (int i = 0; i < 10; ++i)
         boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
-            insertCoro(ios, yield);
+            try {
+                insertCoro(ios, yield);
+            }
+            catch (const std::exception& err) {
+                BOOST_ERROR(err.what());
+            }
         });
 
     std::vector<std::thread> thrs;
@@ -135,14 +147,9 @@ BOOST_AUTO_TEST_CASE(poolTest)
     };
 
     std::atomic_size_t n{ 0 };
-    auto handler = [&n](const boost::system::error_code& ec, const ba::asiopq::Connection* conn) {
+    auto handler = [&n](const boost::system::error_code& ec, const ba::asiopq::Connection*) {
         if (!ec)
             ++n;
-        else
-        {
-            const char* err = ::PQerrorMessage(conn->get());
-            auto a = 1;
-        }
     };
 
     const auto pool = ba::asiopq::makeReconnectionPool<decltype(queryOp), decltype(handler)>(ios, 40, CONNECTION_STRING);
@@ -174,7 +181,12 @@ BOOST_AUTO_TEST_CASE(coroPoolTest)
 
     for (int i = 0; i < 10; ++i)
         boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield){
-            poolCoro(ios, yield);
+            try {
+                poolCoro(ios, yield);
+            }
+            catch (const std::exception& err) {
+                BOOST_ERROR(err.what());
+            }
         });
 
     std::vector<std::thread> thrs;
@@ -249,14 +261,24 @@ BOOST_AUTO_TEST_CASE(connectTimeoutTest)
 {
     boost::asio::io_service ios;
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
-        connectToExistPortCoro(ios, yield);
+        try {
+            connectToExistPortCoro(ios, yield);
+        }
+        catch (const std::exception& err) {
+            BOOST_ERROR(err.what());
+        }
         });
 
     ios.run();
     ios.reset();
 
     boost::asio::spawn(ios, [&ios](boost::asio::yield_context yield) {
-        connectToNotExistPortCoro(ios, yield);
+        try {
+            connectToNotExistPortCoro(ios, yield);
+        }
+        catch (const std::exception& err) {
+            BOOST_ERROR(err.what());
+        }
         });
 
     ios.run();

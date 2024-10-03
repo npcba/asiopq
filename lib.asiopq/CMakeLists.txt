@@ -16,7 +16,8 @@ target_sources (
 target_link_libraries(
     ${PROJECT_NAME}
     INTERFACE
-    ${Boost_LIBRARIES}
+    Boost::coroutine
+    Boost::context
     ${PostgreSQL_LIBRARIES}
 )
 

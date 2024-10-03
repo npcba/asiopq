@@ -148,7 +148,7 @@ public:
         if (ec && ec.category() == pqcategory())
             return Base::invokeHandler(ec);
 
-        switch (const bool JUMP_OVER_FIRST_CHECK = {})
+        switch (const int JUMP_OVER_FIRST_CHECK = {})
         {
             for (;;)
             {

@@ -48,8 +48,8 @@ public:
     }
 
 private:
-    FILE* m_fout = nullptr;
-    PQprintOpt m_opt = {0};
+    FILE* m_fout {nullptr};
+    PQprintOpt m_opt = {};
 };
 
 } // namespace asiopq

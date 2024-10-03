@@ -22,6 +22,7 @@ void ba_asiopq_handlerCheck(Handler&& handler)
     // void handler(
     //     const boost::system::error_code & ec // Result of operation
     // );
+    std::ignore = handler;
     BOOST_ASIO_CONNECT_HANDLER_CHECK(Handler, handler) type_check;
 }
 
